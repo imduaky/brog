@@ -1,0 +1,43 @@
+# brog configuration. Copy to brog.yaml and adjust.
+# The admin password is NOT configured here: on first start a random password is
+# printed to the console (and a new one on every start until you change it in
+# the admin panel). `brog reset-password` goes back to that behaviour.
+
+server:
+  host: 0.0.0.0
+  port: 8080
+  # Public origin. Used for git clone URLs, meta tags and the Secure cookie flag.
+  # baseUrl: https://blog.example.com
+  # false = backend only (API + git + images); deploy the frontend elsewhere.
+  serveWeb: true
+  webDist: ./dist/web
+  # Read client IPs from X-Forwarded-For. Enable only behind a reverse proxy.
+  trustProxy: false
+  # Origins of a separately deployed frontend allowed to call the API with cookies.
+  corsOrigins: []
+
+data:
+  # brog.db (SQLite), git/blog.git, git/public.git and git/workspace live here.
+  # Back up / migrate the blog by copying this directory.
+  dir: ./data
+
+site:
+  title: My Blog
+  description: ""
+  # Owner name; also the username for `git push` (password = token from the admin UI).
+  owner: owner
+  language: zh-CN
+
+auth:
+  # Session lifetime; renewed to this many days on every visit.
+  sessionDays: 7
+  # true / false / auto (= Secure when baseUrl is https)
+  cookieSecure: auto
+  # strict / lax / none. "none" is only needed for a frontend on another site.
+  cookieSameSite: lax
+
+git:
+  binary: git
+  # Commit identity for web commits (defaults to site.owner).
+  # authorName: Young
+  authorEmail: brog@localhost

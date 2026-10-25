@@ -1,0 +1,9 @@
+node_modules/
+dist/
+data/
+brog.yaml
+*.log
+.env
+.DS_Store
+.vite/
+coverage/

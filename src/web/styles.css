@@ -1,0 +1,426 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "katex/dist/katex.min.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design tokens. Every color comes from the paper (--background) and the text
+ * (--foreground). Everything else is mixed from those two, so a color chosen in the
+ * admin panel restyles the whole site. Inline values set by site-theme.ts override
+ * these defaults.
+ */
+:root {
+  --background: #f4ecd8;
+  --foreground: #2b261e;
+  --card: color-mix(in oklch, var(--background) 62%, #fffdf6);
+  --card-foreground: var(--foreground);
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+  --primary: var(--foreground);
+  --primary-foreground: var(--background);
+  --secondary: color-mix(in oklch, var(--background) 90%, var(--foreground));
+  --secondary-foreground: var(--foreground);
+  --muted: color-mix(in oklch, var(--background) 88%, var(--foreground));
+  --muted-foreground: color-mix(in oklch, var(--foreground) 62%, var(--background));
+  --accent: color-mix(in oklch, var(--background) 84%, var(--foreground));
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.577 0.225 27.3);
+  --border: color-mix(in oklch, var(--background) 76%, var(--foreground));
+  --input: var(--border);
+  --ring: color-mix(in oklch, var(--foreground) 40%, var(--background));
+  --link: color-mix(in oklch, var(--foreground) 55%, #2f5f8f);
+  --success: oklch(0.6 0.13 150);
+  --warning: oklch(0.7 0.14 70);
+
+  --adm-note: oklch(0.6 0.12 250);
+  --adm-tip: oklch(0.65 0.11 180);
+  --adm-success: oklch(0.62 0.13 150);
+  --adm-question: oklch(0.7 0.13 120);
+  --adm-warning: oklch(0.72 0.14 65);
+  --adm-danger: oklch(0.6 0.19 25);
+  --adm-example: oklch(0.58 0.15 300);
+  --adm-quote: oklch(0.6 0 0);
+
+  /* Corners: small radii on anything that stands apart from its neighbours. Flush areas stay square. */
+  --radius: 0.375rem;
+
+  /* Motion: one easing for everything that moves, and short durations. */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 140ms;
+  --dur-base: 200ms;
+  --dur-slow: 260ms;
+  /* Height of the site header; 0 while it is hidden on scroll-down. */
+  --header-h: 3.5rem;
+}
+
+.dark {
+  --background: #1f1c17;
+  --foreground: #e9e1cd;
+  --card: color-mix(in oklch, var(--background) 84%, #ffffff);
+  --secondary: color-mix(in oklch, var(--background) 86%, var(--foreground));
+  --muted: color-mix(in oklch, var(--background) 86%, var(--foreground));
+  --accent: color-mix(in oklch, var(--background) 80%, var(--foreground));
+  --destructive: oklch(0.704 0.19 22);
+  --border: color-mix(in oklch, var(--background) 70%, var(--foreground));
+  --ring: color-mix(in oklch, var(--foreground) 40%, var(--background));
+  --link: color-mix(in oklch, var(--foreground) 65%, #8fb8e0);
+}
+
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 20px;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-link: var(--link);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    scroll-padding-top: 4.5rem;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  /* Anything clickable shows a pointer; this is the baseline for "is this clickable?". */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="menuitem"],
+  [role="tab"],
+  [role="option"],
+  label[for],
+  summary,
+  select {
+    cursor: pointer;
+  }
+}
+
+/* ---------------------------------------------------------------- utilities */
+
+/*
+ * Hover affordance for custom clickable areas (cards, list rows, toc links):
+ * a visible background so the whole hit area is obvious.
+ */
+@utility clickable {
+  @apply cursor-pointer rounded-md transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none;
+}
+
+/* ---------------------------------------------------------------- rendered markdown */
+
+.markdown {
+  @apply text-[15.5px] leading-7 break-words;
+
+  & > :first-child {
+    margin-top: 0;
+  }
+  & h1, & h2, & h3, & h4, & h5, & h6 {
+    @apply font-semibold tracking-tight scroll-mt-20 relative;
+  }
+  & h1 { @apply text-3xl mt-8 mb-5; }
+  & h2 { @apply text-2xl mt-10 mb-4 pb-1.5 border-b; }
+  & h3 { @apply text-xl mt-8 mb-3; }
+  & h4 { @apply text-lg mt-6 mb-2; }
+  & h5, & h6 { @apply text-base mt-6 mb-2; }
+  & .headerlink {
+    @apply ml-2 text-muted-foreground no-underline opacity-0 transition-opacity rounded px-1 hover:bg-accent;
+  }
+  & :is(h1, h2, h3, h4, h5, h6):hover .headerlink,
+  & .headerlink:focus-visible {
+    opacity: 1;
+  }
+  & p, & ul, & ol, & dl, & blockquote, & table, & figure, & .code-block, & pre {
+    @apply my-4;
+  }
+  & a {
+    @apply text-link underline underline-offset-2 decoration-link/40 rounded-sm transition-colors hover:decoration-link hover:bg-link/10;
+  }
+  & ul { @apply list-disc pl-6; }
+  & ol { @apply list-decimal pl-6; }
+  & li { @apply my-1; }
+  & li > ul, & li > ol { @apply my-1; }
+  & blockquote { @apply border-l-4 pl-4 text-muted-foreground; }
+  & hr { @apply my-8; }
+  & img { @apply max-w-full h-auto rounded-md mx-auto; }
+  & table { @apply block w-full overflow-x-auto border-collapse text-sm; }
+  & th, & td { @apply border px-3 py-1.5 text-left; }
+  & th { @apply bg-muted font-semibold; }
+  & dt { @apply font-semibold mt-2; }
+  & dd { @apply pl-6; }
+  & mark { @apply bg-yellow-200/70 dark:bg-yellow-500/30 text-inherit rounded-sm px-0.5; }
+  & :not(pre) > code {
+    @apply rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em];
+  }
+  & kbd {
+    @apply inline-block rounded border border-b-2 bg-muted px-1.5 font-mono text-xs leading-5;
+  }
+  & .keys > span { @apply mx-0.5 text-muted-foreground; }
+  & .task-list-container { @apply list-none pl-1; }
+  & .task-list-item input { @apply mr-2 align-middle; }
+  & .footnotes { @apply text-sm text-muted-foreground; }
+  & .katex-display { @apply overflow-x-auto overflow-y-hidden py-1; }
+  & abbr[title] { @apply cursor-help underline decoration-dotted; }
+}
+
+/* code blocks (shiki dual theme through CSS variables) */
+.markdown .code-block {
+  @apply relative overflow-hidden rounded-lg border;
+}
+.markdown .code-title {
+  @apply border-b bg-muted px-4 py-1.5 font-mono text-xs text-muted-foreground;
+}
+.markdown pre.shiki {
+  @apply m-0 overflow-x-auto py-3 font-mono text-[13.5px] leading-6;
+  background-color: var(--shiki-light-bg);
+}
+.markdown pre.shiki,
+.markdown pre.shiki span {
+  color: var(--shiki-light);
+}
+.dark .markdown pre.shiki {
+  background-color: var(--shiki-dark-bg);
+}
+.dark .markdown pre.shiki,
+.dark .markdown pre.shiki span {
+  color: var(--shiki-dark);
+}
+.markdown pre.shiki .line {
+  @apply inline-block min-w-full px-4;
+  transition: box-shadow 120ms ease-out;
+}
+/* Hovering a line lifts it so readers can tell where one line ends. */
+.markdown pre.shiki .line:hover {
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 2px 6px -1px rgb(0 0 0 / 0.18), 0 1px 2px rgb(0 0 0 / 0.08);
+}
+.dark .markdown pre.shiki .line:hover {
+  box-shadow: 0 2px 8px -1px rgb(0 0 0 / 0.55), 0 1px 2px rgb(0 0 0 / 0.35);
+}
+.markdown pre.shiki .line.hl {
+  @apply bg-yellow-300/25 dark:bg-yellow-200/10;
+}
+.markdown pre.shiki.linenums code {
+  counter-reset: inherit;
+}
+.markdown pre.shiki.linenums .line::before {
+  counter-increment: line;
+  content: counter(line);
+  @apply mr-4 inline-block w-6 text-right text-muted-foreground/60 select-none;
+}
+.markdown .copy-code {
+  @apply absolute right-2 top-2 rounded-md border bg-background/90 p-1.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100;
+}
+.markdown .code-title ~ .copy-code {
+  @apply top-9;
+}
+.markdown .code-block:hover .copy-code {
+  opacity: 1;
+}
+.markdown pre.mermaid {
+  @apply flex justify-center bg-transparent text-center;
+}
+/* Rendered diagrams and images fade in instead of appearing. */
+.markdown pre.mermaid svg { animation: brog-fade-in var(--dur-base) var(--ease-out) both; }
+.markdown img { animation: brog-fade-in var(--dur-slow) var(--ease-out) both; }
+
+/* Reserve room while a diagram renders so the page does not jump when the SVG arrives. */
+.markdown pre.mermaid.pending {
+  @apply min-h-32 items-center text-transparent;
+}
+
+/* admonitions */
+.markdown .admonition {
+  --adm: var(--adm-note);
+  @apply my-5 rounded-md border border-l-4 bg-card px-4 py-0.5 text-[15px];
+  border-left-color: var(--adm);
+  & > .admonition-title,
+  & > summary {
+    @apply -mx-4 mb-0 px-4 py-2 font-semibold;
+    background: color-mix(in oklch, var(--adm) 10%, transparent);
+  }
+  & > summary {
+    @apply list-none select-none transition-colors;
+    &::-webkit-details-marker { display: none; }
+    &::after { content: "›"; @apply float-right text-lg leading-6 transition-transform; }
+    &:hover { background: color-mix(in oklch, var(--adm) 18%, transparent); }
+  }
+  &[open] > summary::after { @apply rotate-90; }
+  &:not([open]) > summary { @apply -mb-0.5; }
+  & > :last-child:not(summary):not(.details-body) { @apply mb-3; }
+}
+.markdown .admonition > summary::after {
+  transition: transform 200ms ease-out;
+}
+/*
+ * The body height is animated by markdown-view.tsx (Web Animations API). It carries no
+ * padding or margin, so a closed block leaves nothing behind. The inner wrapper holds
+ * the spacing.
+ */
+.markdown .admonition > .details-body {
+  overflow: hidden;
+}
+.markdown .admonition > .details-body > .details-content {
+  @apply pb-3;
+}
+.markdown .admonition:is(.abstract, .summary, .tldr, .info, .todo, .tip, .hint, .important) { --adm: var(--adm-tip); }
+.markdown .admonition:is(.success, .check, .done) { --adm: var(--adm-success); }
+.markdown .admonition:is(.question, .help, .faq) { --adm: var(--adm-question); }
+.markdown .admonition:is(.warning, .caution, .attention) { --adm: var(--adm-warning); }
+.markdown .admonition:is(.failure, .fail, .missing, .danger, .error, .bug) { --adm: var(--adm-danger); }
+.markdown .admonition.example { --adm: var(--adm-example); }
+.markdown .admonition:is(.quote, .cite) { --adm: var(--adm-quote); }
+
+/* content tabs: CSS-only radio tabs, matching mkdocs-material */
+.markdown .tabbed-set {
+  @apply relative my-5 flex flex-wrap rounded-md border;
+  & > input {
+    @apply absolute opacity-0 pointer-events-none;
+  }
+  & > label {
+    @apply order-1 border-b-2 border-transparent px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground;
+  }
+  & > input:checked + label {
+    @apply border-foreground text-foreground;
+  }
+  & > input:focus-visible + label {
+    @apply ring-[3px] ring-ring/50;
+  }
+  & > .tabbed-block {
+    @apply order-2 hidden w-full border-t px-4;
+    & > .code-block:only-child { @apply -mx-4 my-0 rounded-none border-0; }
+  }
+  & > input:checked + label + .tabbed-block {
+    @apply block;
+    animation: brog-tab-in 180ms ease-out;
+  }
+}
+
+/* ---------------------------------------------------------------- lines */
+
+/* Source, diff and other line-based views: a line lifts on hover. Background is left alone. */
+.line-hover {
+  transition: box-shadow 120ms ease-out;
+}
+.line-hover:hover {
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 2px 6px -1px rgb(0 0 0 / 0.18), 0 1px 2px rgb(0 0 0 / 0.08);
+}
+.dark .line-hover:hover {
+  box-shadow: 0 2px 8px -1px rgb(0 0 0 / 0.55), 0 1px 2px rgb(0 0 0 / 0.35);
+}
+
+/* ---------------------------------------------------------------- motion */
+
+@keyframes brog-fade-in {
+  from { opacity: 0; }
+}
+@keyframes brog-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes brog-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+@keyframes brog-tab-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* Entrance animations. Each is applied once when its element mounts. */
+.motion-fade { animation: brog-fade-in var(--dur-base) var(--ease-out) both; }
+.motion-rise { animation: brog-rise var(--dur-slow) var(--ease-out) both; }
+.motion-pop { animation: brog-pop var(--dur-base) var(--ease-out) both; transform-origin: bottom right; }
+
+/* Press feedback on anything clickable: a small squeeze, released immediately. */
+.clickable:active,
+[data-slot="button"]:not(:disabled):active {
+  transform: scale(0.97);
+  transition-duration: 60ms;
+}
+
+/* Header auto-hide and the layout that follows it. */
+.site-header {
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.site-header[data-hidden="true"] {
+  transform: translateY(-100%);
+}
+
+/* Reader side panels: the slot animates its width; the content keeps its own width. */
+.panel-slot {
+  transition: width var(--dur-slow) var(--ease-out), opacity var(--dur-base) var(--ease-out), top var(--dur-base) var(--ease-out);
+}
+.panel-slot[data-dragging="true"] {
+  transition: none;
+}
+
+/* Tag cards and other selectable chips. */
+.chip {
+  border-radius: var(--radius-md);
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.chip:hover {
+  box-shadow: 0 2px 6px -2px rgb(0 0 0 / 0.18);
+}
+.chip[aria-pressed="true"] {
+  background-color: var(--foreground);
+  border-color: var(--foreground);
+  color: var(--background);
+}
+
+/* Global guard: when the system asks for less motion, nothing transitions or animates. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* live demos */
+.markdown .live-demo {
+  @apply overflow-hidden rounded-lg border;
+  & iframe { @apply block w-full border-0 bg-background; transition: height var(--dur-base) var(--ease-out); }
+  & details { @apply border-t; }
+  & summary { @apply px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground; }
+  & .code-block { @apply m-0 rounded-none border-0 border-t; }
+}
