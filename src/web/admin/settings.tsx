@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import type { SiteSettings } from '@shared/types'
 import { Plus, Trash2, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
@@ -16,40 +16,57 @@ import { AppearanceCard } from './appearance'
 import { api, formatDateTime, sha256Hex } from '@/lib/api'
 import { ErrorState, Loading } from '@/components/states'
 import { useAdminMutation } from './hooks'
+import { CommentsCard } from './settings-comments'
+import { FriendLinksCard, NavCard } from './settings-nav'
+import { PinsCard } from './settings-pins'
+import { ServerCard } from './settings-server'
+import { useSaveSite } from './settings-shared'
 
+const SITE_FIELDS = ['title', 'description', 'listColumns', 'footerText', 'footerLinks', 'showCloneUrl'] as const
+type SiteFields = Pick<SiteSettings, (typeof SITE_FIELDS)[number]>
+const pickSite = (s: SiteSettings): SiteFields => Object.fromEntries(SITE_FIELDS.map((k) => [k, s[k]])) as SiteFields
+
+/**
+ * Each card saves only its own section and is keyed on that section, so saving one
+ * card never resets unsaved edits in another. Two columns when the page is wide enough.
+ */
 export default function SettingsPage() {
   const site = useSite()
+  const s = site.data?.settings
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto grid max-w-2xl gap-6 p-6">
+    <div className="relative h-full overflow-y-auto">
+      <div className="mx-auto grid max-w-6xl items-start gap-6 p-6 lg:grid-cols-2">
         {site.isPending ? (
           <Loading />
         ) : site.isError ? (
           <ErrorState error={site.error} />
         ) : (
-          <>
-            <SiteCard key={JSON.stringify(site.data.settings)} settings={site.data.settings} />
-            <AppearanceCard settings={site.data.settings} />
-          </>
+          s && (
+            <>
+              <div className="grid min-w-0 content-start gap-6">
+                <SiteCard key={JSON.stringify(pickSite(s))} settings={s} />
+                <NavCard key={JSON.stringify(s.nav)} settings={s} />
+                <FriendLinksCard key={JSON.stringify(s.friendLinks)} settings={s} />
+              </div>
+              <div className="grid min-w-0 content-start gap-6">
+                <AppearanceCard key={JSON.stringify([s.paper, s.home])} settings={s} />
+                <PinsCard />
+                <CommentsCard />
+                <ServerCard />
+                <PasswordCard />
+              </div>
+            </>
+          )
         )}
-        <PasswordCard />
       </div>
     </div>
   )
 }
 
 function SiteCard({ settings }: { settings: SiteSettings }) {
-  const qc = useQueryClient()
-  const [form, setForm] = useState<SiteSettings>(settings)
-  const save = useMutation({
-    mutationFn: () => api<SiteSettings>('/api/admin/site-settings', { method: 'PUT', json: form }),
-    onSuccess: () => {
-      toast.success('站点设置已保存')
-      void qc.invalidateQueries({ queryKey: ['site'] })
-    },
-    onError: (err) => toast.error(err instanceof Error ? err.message : String(err)),
-  })
-  const set = <K extends keyof SiteSettings>(k: K, v: SiteSettings[K]) => setForm((f) => ({ ...f, [k]: v }))
+  const [form, setForm] = useState<SiteFields>(() => pickSite(settings))
+  const save = useSaveSite('站点设置已保存')
+  const set = <K extends keyof SiteFields>(k: K, v: SiteFields[K]) => setForm((f) => ({ ...f, [k]: v }))
   const setLink = (i: number, patch: Partial<SiteSettings['footerLinks'][number]>) =>
     set('footerLinks', form.footerLinks.map((l, j) => (j === i ? { ...l, ...patch } : l)))
 
@@ -64,7 +81,7 @@ function SiteCard({ settings }: { settings: SiteSettings }) {
           className="grid gap-5"
           onSubmit={(e) => {
             e.preventDefault()
-            save.mutate(undefined)
+            save.mutate(form)
           }}
         >
           <div className="grid gap-2">
@@ -97,6 +114,7 @@ function SiteCard({ settings }: { settings: SiteSettings }) {
           </div>
           <div className="grid gap-2">
             <Label>页脚链接</Label>
+            <p className="-mt-1 text-xs text-muted-foreground">放一些工具页（如关于、订阅）。友链请在「友链」中设置。</p>
             <div className="grid gap-2">
               {form.footerLinks.map((l, i) => (
                 <div key={i} className="flex items-center gap-2">

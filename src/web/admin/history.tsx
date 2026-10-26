@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import type { CommitDetail, CommitInfo, ResetMode, WorkspaceStatus } from '@shared/types'
-import { GitCompare, RotateCcw, Undo2 } from 'lucide-react'
+import type { CommitDetail, CommitInfo, ResetMode, SearchCommitHit, WorkspaceStatus } from '@shared/types'
+import { GitCompare, RotateCcw, Search, Undo2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { DiffView } from '@/components/diff-view'
@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useDebounced } from '@/hooks/use-debounced'
 import { api, enc, formatDateTime } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useAdminMutation } from './hooks'
@@ -33,6 +34,17 @@ export default function HistoryPage() {
     queryFn: () => api<CommitInfo[]>(`/api/admin/log?limit=300${path ? `&path=${enc(path)}` : ''}`),
   })
   const status = useQuery({ queryKey: ['admin', 'status'], queryFn: () => api<WorkspaceStatus>('/api/admin/status') })
+  // Commit messages are searchable only here: readers' search covers articles, series and tags.
+  const [search, setSearch] = useState('')
+  const q = useDebounced(search.trim(), 200)
+  const searching = q.length >= 2
+  const hits = useQuery({
+    queryKey: ['admin', 'search-commits', q],
+    queryFn: () => api<SearchCommitHit[]>(`/api/admin/search/commits?q=${enc(q)}`),
+    enabled: searching,
+    placeholderData: (prev) => prev,
+  })
+  const rows: (CommitInfo | SearchCommitHit)[] | undefined = searching ? hits.data : log.data
   const revert = useAdminMutation(
     (rev: string) => api<{ oid: string }>('/api/admin/revert', { method: 'POST', json: { rev } }),
     (r) => `已生成反向提交 ${r.oid.slice(0, 7)}`,
@@ -43,36 +55,54 @@ export default function HistoryPage() {
 
   // Older commit first, so the diff reads old -> new.
   const compareSelected = () => {
-    if (!log.data || picked.length !== 2) return
-    const [a, b] = picked.map((oid) => log.data.findIndex((c) => c.oid === oid))
+    if (!rows || picked.length !== 2) return
+    // Both lists run newest first, so the larger index is the older commit.
+    const [a, b] = picked.map((oid) => rows.findIndex((c) => c.oid === oid))
     const [older, newer] = (a! > b! ? [picked[0]!, picked[1]!] : [picked[1]!, picked[0]!])
     navigate(`/admin/compare/${older}...${newer}${path ? `?path=${enc(path)}` : ''}`)
   }
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="relative h-full overflow-y-auto">
       <div className="mx-auto max-w-4xl p-6">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold">提交历史</h1>
           <Button variant="outline" size="sm" disabled={picked.length !== 2} onClick={compareSelected}>
             <GitCompare /> 对比所选{picked.length === 2 ? '' : `（已选 ${picked.length}/2）`}
           </Button>
+          <div className="relative ml-auto w-full max-w-xs sm:w-56">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-8"
+              placeholder="搜索提交说明"
+              aria-label="搜索提交说明"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
           <Input
-            className="ml-auto max-w-xs"
-            placeholder="按路径过滤，例如 系列名/2"
+            className="max-w-xs sm:w-56"
+            placeholder="按路径过滤，例如 合集名/2"
             defaultValue={path}
             onKeyDown={(e) => {
               if (e.key === 'Enter') setParams(e.currentTarget.value ? { path: e.currentTarget.value } : {})
             }}
           />
         </div>
-        {log.isPending ? (
+        {searching && hits.data && (
+          <p className="mb-2 text-xs text-muted-foreground">
+            {hits.data.length === 0 ? '没有匹配的提交' : `匹配的提交 ${hits.data.length} 个${hits.data.length >= 30 ? '（最多显示 30 个）' : ''}，包含未发布的提交`}
+          </p>
+        )}
+        {(searching ? hits.isPending && !hits.data : log.isPending) ? (
           <Loading />
-        ) : log.isError ? (
+        ) : searching && hits.isError ? (
+          <ErrorState error={hits.error} />
+        ) : !searching && log.isError ? (
           <ErrorState error={log.error} />
-        ) : (
+        ) : rows && rows.length > 0 ? (
           <ul className="rounded-md border">
-            {log.data.map((c) => {
+            {rows.map((c) => {
               const checked = picked.includes(c.oid)
               return (
                 <li
@@ -89,6 +119,7 @@ export default function HistoryPage() {
                     <div className="mt-0.5 flex flex-wrap gap-3 text-xs text-muted-foreground">
                       <span>{c.author}</span>
                       <span>{formatDateTime(c.time)}</span>
+                      {'articles' in c && c.articles.map((a) => <span key={`${a.series}/${a.chapter}`}>{a.title}</span>)}
                     </div>
                   </button>
                   {c.parents[0] ? (
@@ -119,7 +150,7 @@ export default function HistoryPage() {
               )
             })}
           </ul>
-        )}
+        ) : null}
       </div>
       <CommitDialog oid={detailOid} head={status.data?.head} onClose={() => setDetailOid(null)} />
       <ResetDialog target={resetTarget} onClose={() => setResetTarget(null)} />

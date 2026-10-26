@@ -14,7 +14,7 @@ const escape = (s: string) =>
  */
 export function webRoutes(ctx: AppContext) {
   const app = new Hono<Env>()
-  const root = ctx.config.resolved.webDist
+  const root = ctx.startup.webDist
   let template: string | null = null
   const loadTemplate = () => {
     if (template === null || process.env.NODE_ENV === 'development') {
@@ -40,10 +40,12 @@ export function webRoutes(ctx: AppContext) {
     try {
       html = loadTemplate()
     } catch {
-      return c.text('frontend not built: run `pnpm build:web`, or disable server.serveWeb', 500)
+      return c.text('frontend not built: run `pnpm build:web`, or start with --api-only', 500)
     }
     const meta = await pageMeta(ctx, c)
-    c.header('Cache-Control', 'no-cache')
+    // The shell is the same for every reader; its assets are hashed and cached for a year.
+    // A shared cache keeps it for a minute, so a redeploy shows up within that minute.
+    c.header('Cache-Control', 'public, max-age=0, s-maxage=60')
     return c.html(injectMeta(html, meta))
   })
 
@@ -58,9 +60,18 @@ interface PageMeta {
 }
 
 async function pageMeta(ctx: AppContext, c: Context): Promise<PageMeta> {
-  const site = readSiteSettings(ctx.db, ctx.config.site)
+  const site = readSiteSettings(ctx.db)
   const base: PageMeta = { title: site.title, description: site.description, type: 'website' }
-  const m = /^\/s\/([^/]+)(?:\/(\d+))?\/?$/.exec(c.req.path)
+  const page = /^\/p\/([^/]+)\/?$/.exec(c.req.path)
+  if (page) {
+    try {
+      const ref = ctx.content.listPages().find((p) => p.slug === decodeURIComponent(page[1]!))
+      return ref ? { ...base, title: `${ref.title} - ${site.title}` } : base
+    } catch {
+      return base
+    }
+  }
+  const m = /^\/s\/([^/]+)(?:\/(\d+))?(?:\/source)?\/?$/.exec(c.req.path)
   if (!m) return base
   try {
     const series = decodeURIComponent(m[1]!)

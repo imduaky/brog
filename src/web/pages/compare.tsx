@@ -59,7 +59,7 @@ export default function ComparePage({ admin = false }: { admin?: boolean }) {
   }
 
   return (
-    <div className={cn(admin ? 'h-full overflow-y-auto' : '')}>
+    <div className={cn(admin ? 'relative h-full overflow-y-auto' : '')}>
       <div className="mx-auto grid max-w-5xl gap-5 p-6">
         <title>对比 {base.slice(0, 7)}...{head.slice(0, 7)}</title>
         <div className="flex flex-wrap items-end gap-3">

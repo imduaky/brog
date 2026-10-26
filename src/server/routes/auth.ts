@@ -5,14 +5,15 @@ import { z } from 'zod'
 import type { SessionInfo } from '../../shared/types.ts'
 import { changePassword, passwordChanged, verifyPassword } from '../auth/password.ts'
 import { SESSION_COOKIE } from '../auth/session.ts'
-import { cookieIsSecure } from '../config.ts'
 import { type AppContext, clientIp, type Env, parseJson } from '../context.ts'
+import { cookieIsSecure } from '../server-settings.ts'
 
 function writeSessionCookie(ctx: AppContext, c: Context, token: string) {
+  const s = ctx.settings.get()
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: cookieIsSecure(ctx.config) || ctx.config.auth.cookieSameSite === 'none',
-    sameSite: ctx.config.auth.cookieSameSite === 'none' ? 'None' : ctx.config.auth.cookieSameSite === 'strict' ? 'Strict' : 'Lax',
+    secure: cookieIsSecure(s) || s.cookieSameSite === 'none',
+    sameSite: s.cookieSameSite === 'none' ? 'None' : s.cookieSameSite === 'strict' ? 'Strict' : 'Lax',
     path: '/',
     maxAge: ctx.sessions.maxAgeSeconds,
   })
@@ -42,7 +43,7 @@ export function authRoutes(ctx: AppContext) {
   app.get('/session', (c) => c.json(currentSession(ctx, c)))
 
   app.post('/login', async (c) => {
-    const ip = clientIp(c, ctx.config.server.trustProxy)
+    const ip = clientIp(ctx, c)
     if (ctx.loginLimiter.blocked(ip)) return c.json({ error: '尝试次数过多，请 15 分钟后再试' }, 429)
     const { password } = await parseJson(c, z.object({ password: PasswordHash }))
     if (!(await verifyPassword(ctx.db, password))) {

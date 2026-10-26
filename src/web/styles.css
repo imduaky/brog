@@ -126,6 +126,16 @@
 /* ---------------------------------------------------------------- utilities */
 
 /*
+ * Centred page rows (header, main, footer). --sb-pad is the width of the window scrollbar
+ * while none is showing (see lib/scrollbar.ts), so the rows centre on the same line on
+ * every page: short pages with no bar and long pages with one.
+ */
+@utility frame {
+  padding-left: 1rem;
+  padding-right: calc(1rem + var(--sb-pad, 0px));
+}
+
+/*
  * Hover affordance for custom clickable areas (cards, list rows, toc links):
  * a visible background so the whole hit area is obvious.
  */

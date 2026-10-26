@@ -23,7 +23,7 @@ export default function TokensPage() {
   const url = site.data?.fullCloneUrl ?? ''
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="relative h-full overflow-y-auto">
       <div className="mx-auto grid max-w-3xl gap-6 p-6">
         <Card>
           <CardHeader>

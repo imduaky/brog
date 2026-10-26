@@ -9,11 +9,15 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import type { SessionInfo } from '@shared/types'
 import { ApiError, api } from '@/lib/api'
+import { observeScrollbar } from '@/lib/scrollbar'
 import ArticlePage from '@/pages/article'
 import ComparePage from '@/pages/compare'
 import HomePage from '@/pages/home'
+import LinksPage from '@/pages/links'
+import CustomPage from '@/pages/page'
 import SeriesPage from '@/pages/series'
 import SeriesListPage from '@/pages/series-list'
+import SourcePage from '@/pages/source'
 import TagsPage from '@/pages/tags'
 
 const queryClient = new QueryClient({
@@ -38,6 +42,9 @@ const router = createBrowserRouter([
       { path: '/tags', element: <TagsPage /> },
       { path: '/s/:series', element: <SeriesPage /> },
       { path: '/s/:series/:chapter', element: <ArticlePage /> },
+      { path: '/s/:series/:chapter/source', element: <SourcePage /> },
+      { path: '/links', element: <LinksPage /> },
+      { path: '/p/:slug', element: <CustomPage /> },
       { path: '/compare/:range', element: <ComparePage /> },
       { path: '*', element: <NotFound /> },
     ],
@@ -56,6 +63,8 @@ const router = createBrowserRouter([
     },
   },
 ])
+
+observeScrollbar()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

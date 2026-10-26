@@ -1,6 +1,6 @@
 {
   "name": "brog",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "A git-backed blog: mkdocs-material style markdown, commit/push publishing, built-in git server.",
   "license": "MIT",
@@ -9,9 +9,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "concurrently -k -n server,web -c blue,green \"pnpm dev:server\" \"pnpm dev:web\"",
-    "dev:server": "tsx watch --clear-screen=false src/server/main.ts",
-    "dev:web": "vite",
+    "dev": "node scripts/dev.mjs",
     "build": "pnpm build:web && pnpm build:server",
     "build:web": "vite build",
     "build:server": "tsdown",
@@ -19,7 +17,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "reset-password": "tsx src/server/main.ts reset-password"
+    "reset-password": "tsx src/server/main.ts reset-password",
+    "reset-settings": "tsx src/server/main.ts reset-settings"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",
@@ -61,7 +60,6 @@
     "@vitejs/plugin-react": "^6.1.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "concurrently": "^10.0.6",
     "lucide-react": "^1.61.0",
     "mermaid": "^12.2.0",
     "radix-ui": "^1.8.1",

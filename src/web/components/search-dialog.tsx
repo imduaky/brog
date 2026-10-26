@@ -1,12 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
-import type { SearchArticleHit, SearchCommitHit, SearchResponse } from '@shared/types'
+import type { SearchArticleHit, SearchResponse } from '@shared/types'
+import { BookOpen, Hash } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useDebounced } from '@/hooks/use-debounced'
-import { useSession } from '@/hooks/use-session'
-import { api, articlePath, enc, formatDateTime } from '@/lib/api'
+import { api, articlePath, enc } from '@/lib/api'
 
 const MARK_START = '\u0002'
 const MARK_END = '\u0003'
@@ -32,11 +32,8 @@ function Snippet({ text }: { text: string }) {
 export function SearchDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const [input, setInput] = useState('')
   const q = useDebounced(input.trim(), 200)
-  const session = useSession()
-  const admin = !!session.data?.admin
-  const prefix = admin ? '/admin' : ''
   const search = useQuery({
-    queryKey: ['search', q, admin],
+    queryKey: ['search', q],
     queryFn: () => api<SearchResponse>(`/api/search?q=${enc(q)}`),
     enabled: open && q.length >= 2,
     staleTime: 30_000,
@@ -49,13 +46,13 @@ export function SearchDialog({ open, onOpenChange }: { open: boolean; onOpenChan
       <DialogContent className="max-h-[80svh] gap-3 overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="sr-only">搜索</DialogTitle>
-          <DialogDescription className="sr-only">搜索文章和提交说明</DialogDescription>
+          <DialogDescription className="sr-only">搜索文章、合集和标签</DialogDescription>
         </DialogHeader>
         <Input
           autoFocus
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="搜索文章、提交说明…"
+          placeholder="搜索文章、合集、标签…"
           aria-label="搜索"
         />
         <div className="min-h-0 overflow-y-auto pr-1">
@@ -66,7 +63,7 @@ export function SearchDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           ) : search.isError ? (
             <p className="py-8 text-center text-sm text-destructive">{String(search.error)}</p>
           ) : search.data ? (
-            <Results data={search.data} prefix={prefix} onNavigate={close} />
+            <Results data={search.data} onNavigate={close} />
           ) : null}
         </div>
       </DialogContent>
@@ -74,25 +71,51 @@ export function SearchDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   )
 }
 
-function Results({ data, prefix, onNavigate }: { data: SearchResponse; prefix: string; onNavigate: () => void }) {
-  const empty = data.articles.length === 0 && data.commits.length === 0
+function Results({ data, onNavigate }: { data: SearchResponse; onNavigate: () => void }) {
+  const empty = data.articles.length === 0 && data.series.length === 0 && data.tags.length === 0
   return (
     <div className="grid gap-5">
       {!data.fullText && <p className="text-xs text-muted-foreground">全文搜索已关闭，仅匹配标题、标签和摘要。</p>}
       {empty && <p className="py-8 text-center text-sm text-muted-foreground">没有匹配的内容</p>}
+      {data.tags.length > 0 && (
+        <section className="grid gap-1">
+          <h3 className="px-2 text-xs font-medium text-muted-foreground">标签</h3>
+          <div className="flex flex-wrap gap-1.5 px-1">
+            {data.tags.map((t) => (
+              <Link
+                key={t.key}
+                to={`/tags?tags=${enc(t.key)}`}
+                onClick={onNavigate}
+                className="chip inline-flex h-8 items-center gap-1.5 border px-2.5 text-sm hover:bg-accent"
+              >
+                <Hash className="size-3.5 text-muted-foreground" />
+                {t.name}
+                <span className="text-xs text-muted-foreground">{t.count}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+      {data.series.length > 0 && (
+        <section className="grid gap-1">
+          <h3 className="px-2 text-xs font-medium text-muted-foreground">合集</h3>
+          {data.series.map((s) => (
+            <Link key={s.slug} to={`/s/${enc(s.slug)}`} onClick={onNavigate} className="clickable block px-2 py-2">
+              <span className="flex items-baseline gap-2">
+                <BookOpen className="size-3.5 shrink-0 self-center text-muted-foreground" />
+                <span className="font-medium">{s.title}</span>
+                <span className="text-xs text-muted-foreground">{s.count} 篇</span>
+              </span>
+              {s.description && <span className="mt-0.5 line-clamp-1 block text-sm text-muted-foreground">{s.description}</span>}
+            </Link>
+          ))}
+        </section>
+      )}
       {data.articles.length > 0 && (
         <section className="grid gap-1">
           <h3 className="px-2 text-xs font-medium text-muted-foreground">文章</h3>
           {data.articles.map((a) => (
             <ArticleResult key={`${a.series}/${a.chapter}`} hit={a} onNavigate={onNavigate} />
-          ))}
-        </section>
-      )}
-      {data.commits.length > 0 && (
-        <section className="grid gap-1">
-          <h3 className="px-2 text-xs font-medium text-muted-foreground">提交</h3>
-          {data.commits.map((c) => (
-            <CommitResult key={c.oid} hit={c} prefix={prefix} onNavigate={onNavigate} />
           ))}
         </section>
       )}
@@ -117,28 +140,3 @@ function ArticleResult({ hit, onNavigate }: { hit: SearchArticleHit; onNavigate:
     </Link>
   )
 }
-
-function CommitResult({ hit, prefix, onNavigate }: { hit: SearchCommitHit; prefix: string; onNavigate: () => void }) {
-  const parent = hit.parents[0]
-  const body = (
-    <>
-      <span className="block text-sm">{hit.subject}</span>
-      <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-        <code className="font-mono">{hit.oid.slice(0, 7)}</code>
-        <span>{formatDateTime(hit.time)}</span>
-        {hit.articles.map((a) => (
-          <span key={`${a.series}/${a.chapter}`}>{a.title}</span>
-        ))}
-      </span>
-    </>
-  )
-  // Commits open as a diff against their parent, the same view as the history page.
-  return parent ? (
-    <Link to={`${prefix}/compare/${parent}...${hit.oid}`} onClick={onNavigate} className="clickable block px-2 py-2">
-      {body}
-    </Link>
-  ) : (
-    <div className="block px-2 py-2">{body}</div>
-  )
-}
-

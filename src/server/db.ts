@@ -102,6 +102,52 @@ const MIGRATIONS: string[] = [
   -- The home background image was removed; its table goes with it.
   DROP TABLE media;
   `,
+  `
+  -- Items the admin pinned to the top of the home list. Applies immediately, not versioned.
+  -- key: "<series>/<n>" for an article, the slug for a series, the catalog key for a tag.
+  CREATE TABLE pins (
+    kind       TEXT NOT NULL CHECK (kind IN ('article', 'series', 'tag')),
+    key        TEXT NOT NULL,
+    sort       INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (kind, key)
+  );
+
+  -- Custom pages (_pages/<slug>/) of the published commit. Rebuilt on every publish.
+  CREATE TABLE page_index (
+    slug  TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    kind  TEXT NOT NULL
+  );
+  `,
+  `
+  -- The GitHub Discussion that holds an article's comments. One per article path, created on the first comment.
+  CREATE TABLE comment_threads (
+    series        TEXT NOT NULL,
+    chapter       INTEGER NOT NULL,
+    discussion_id TEXT NOT NULL,
+    number        INTEGER NOT NULL,
+    url           TEXT NOT NULL,
+    created_at    INTEGER NOT NULL,
+    PRIMARY KEY (series, chapter)
+  );
+  `,
+  `
+  -- Share links: <origin>/sh/<id> redirects to the article's published version. id is 4 letters or digits.
+  CREATE TABLE share_links (
+    id         TEXT PRIMARY KEY,
+    series     TEXT NOT NULL,
+    chapter    INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX share_links_article ON share_links(series, chapter);
+  `,
+  `
+  -- Visitor links: the one link every reader of an article gets. Admin links have visitor = 0.
+  -- At most one visitor link per article.
+  ALTER TABLE share_links ADD COLUMN visitor INTEGER NOT NULL DEFAULT 0;
+  CREATE UNIQUE INDEX share_links_visitor ON share_links(series, chapter) WHERE visitor = 1;
+  `,
 ]
 
 export function openDb(file: string): DB {

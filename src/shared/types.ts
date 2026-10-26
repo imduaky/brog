@@ -123,6 +123,25 @@ export interface FooterLink {
   url: string
 }
 
+/** An entry on the friend links page. */
+export interface FriendLink {
+  name: string
+  url: string
+  description: string
+  /** Image URL, optional */
+  avatar: string
+}
+
+export type BuiltinPage = 'home' | 'series' | 'tags' | 'links'
+
+/** One entry of the header navigation, in display order. */
+export type NavItem =
+  | { type: 'builtin'; page: BuiltinPage; label: string }
+  /** A custom page from the repository's _pages/<slug>/ folder */
+  | { type: 'page'; slug: string; label: string }
+  /** An external address, opened in a new tab */
+  | { type: 'link'; url: string; label: string }
+
 export interface HomeBackground {
   /** Background color of the home page, per mode */
   color: ColorPair
@@ -133,7 +152,12 @@ export interface SiteSettings {
   title: string
   description: string
   footerText: string
+  /** Small links in the footer (tool pages such as RSS or an about page) */
   footerLinks: FooterLink[]
+  /** Shown on the friend links page */
+  friendLinks: FriendLink[]
+  /** Header navigation */
+  nav: NavItem[]
   /** Show the anonymous clone command in the footer */
   showCloneUrl: boolean
   /** Article list layout: auto uses two columns when the page is wide enough */
@@ -142,6 +166,30 @@ export interface SiteSettings {
   paper: ColorPair
   /** Home page background, per mode */
   home: HomeBackground
+}
+
+/** Server behaviour, edited in the admin panel. Address, port and data directory are startup options instead. */
+export interface ServerSettings {
+  /** Public origin, e.g. https://blog.example.com. Empty: taken from each request. */
+  baseUrl: string
+  /** Origin for share links, e.g. a short domain (https://s.example.com). Empty: the main site origin. */
+  shareOrigin: string
+  /** Read the client IP from X-Forwarded-For (only behind a reverse proxy) */
+  trustProxy: boolean
+  /** Origins of a separately deployed frontend allowed to call the API with cookies */
+  corsOrigins: string[]
+  /** Username for authenticated git clone/push */
+  owner: string
+  language: string
+  sessionDays: number
+  /** auto: Secure when baseUrl is https */
+  cookieSecure: 'auto' | 'on' | 'off'
+  cookieSameSite: 'strict' | 'lax' | 'none'
+  /** Index article bodies for search. Off: titles, tags and summaries only. */
+  fullText: boolean
+  /** Commit author for web commits. Empty: the owner. */
+  authorName: string
+  authorEmail: string
 }
 
 export interface SiteInfo {
@@ -153,6 +201,102 @@ export interface SiteInfo {
   /** Authenticated clone/push (owner + token): full main including drafts */
   fullCloneUrl: string
   publishedCommit: string | null
+  /** Published custom pages, for resolving page entries of the navigation */
+  pages: PageRef[]
+  /** Whether articles show a comment section (feature on, configured, and the token is set) */
+  comments: { enabled: boolean }
+}
+
+/** A share link to an article: <origin>/sh/<id>, redirecting to the published article. */
+export interface ShareLink {
+  /** 4 letters or digits, case-sensitive */
+  id: string
+  url: string
+  /** Unix time in milliseconds */
+  createdAt: number
+  /** The one link every reader of the article shares (created on the first request), not an admin's link */
+  visitor: boolean
+}
+
+/** Comment settings as the admin sees them. */
+export interface CommentSettings {
+  /** The admin's switch, as saved */
+  enabled: boolean
+  /** On and configured with a token: readers see comments */
+  active: boolean
+  /** owner/name of the repository that holds the discussions */
+  repo: string
+  categoryId: string
+  categoryName: string
+  /** BROG_GITHUB_TOKEN is set in the environment (its value is never shown) */
+  tokenConfigured: boolean
+}
+
+export interface CommentItem {
+  id: string
+  /** The name a reader typed, or the GitHub login of a comment written on GitHub */
+  name: string
+  /** Posted through the site by a reader, not by a GitHub account */
+  guest: boolean
+  avatarUrl: string | null
+  body: string
+  /** Unix time in milliseconds */
+  createdAt: number
+  url: string
+}
+
+export interface CommentsResponse {
+  enabled: boolean
+  /** Every comment on the article's discussion, including those not returned here */
+  total: number
+  /** Oldest first, up to 100 */
+  comments: CommentItem[]
+}
+
+export interface CommentCategories {
+  repoId: string
+  categories: { id: string; name: string }[]
+}
+
+export interface CommentTestStep {
+  key: 'token' | 'viewer' | 'repo' | 'category' | 'threads' | 'write'
+  label: string
+  /** null: not run, or nothing to check */
+  ok: boolean | null
+  detail: string
+}
+
+/** A custom page: _pages/<slug>/ holds content.md (Markdown) or index.html (a sandboxed web page). */
+export interface PageRef {
+  slug: string
+  title: string
+  kind: 'markdown' | 'html'
+}
+
+export interface PageResponse extends PageRef {
+  /** Rendered Markdown, or for html pages the document shown in a sandboxed iframe */
+  html: string
+  toc: TocItem[]
+  rev: string
+}
+
+export type PinKind = 'article' | 'series' | 'tag'
+
+/** A pinned item as stored. key: "<series>/<n>" for articles, the slug for series, the tag key for tags. */
+export interface Pin {
+  kind: PinKind
+  key: string
+}
+
+/** Pinned items resolved against the published index, in the admin's order. */
+export type PinnedItem =
+  | { kind: 'article'; key: string; article: ArticleSummary }
+  | { kind: 'series'; key: string; series: SeriesSummary }
+  | { kind: 'tag'; key: string; tag: TagCount }
+
+/** Admin view of a pin: resolved title, or null when it is not published (or no longer exists). */
+export interface AdminPin extends Pin {
+  title: string | null
 }
 
 export interface SearchArticleHit {
@@ -170,9 +314,18 @@ export interface SearchCommitHit extends CommitInfo {
   articles: ArticleRef[]
 }
 
+export interface SearchSeriesHit {
+  slug: string
+  title: string
+  description: string
+  count: number
+}
+
+/** Reader search: published articles, series and tags. Commit messages are searched in the admin panel. */
 export interface SearchResponse {
   articles: SearchArticleHit[]
-  commits: SearchCommitHit[]
+  series: SearchSeriesHit[]
+  tags: TagCount[]
   /** Full-text indexing is off on this server; article search covers titles, tags and summaries only. */
   fullText: boolean
 }

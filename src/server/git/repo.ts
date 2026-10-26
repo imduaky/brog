@@ -11,8 +11,8 @@ export interface RepoOptions {
   binary: string
   /** Directory that holds blog.git, public.git and workspace/. */
   root: string
-  authorName: string
-  authorEmail: string
+  /** Read on every commit, so a changed setting applies without a restart. */
+  author: () => { name: string; email: string }
 }
 
 export interface TreeEntry {
@@ -33,7 +33,7 @@ export interface SyncResult {
 export class RepoError extends Error {
   constructor(
     message: string,
-    readonly status: 400 | 404 | 409 | 500 = 400,
+    readonly status: 400 | 403 | 404 | 409 | 429 | 500 = 400,
   ) {
     super(message)
   }
@@ -126,6 +126,7 @@ export class BlogRepo {
   // ---------------------------------------------------------------- low level
 
   git(args: string[], opts: GitRunOptions = {}) {
+    const author = this.opts.author()
     return runGit(
       this.opts.binary,
       [`--git-dir=${this.gitDir}`, `--work-tree=${this.workTree}`, '-c', 'core.quotepath=false', ...args],
@@ -133,10 +134,10 @@ export class BlogRepo {
         ...opts,
         cwd: this.workTree,
         env: {
-          GIT_AUTHOR_NAME: this.opts.authorName,
-          GIT_AUTHOR_EMAIL: this.opts.authorEmail,
-          GIT_COMMITTER_NAME: this.opts.authorName,
-          GIT_COMMITTER_EMAIL: this.opts.authorEmail,
+          GIT_AUTHOR_NAME: author.name,
+          GIT_AUTHOR_EMAIL: author.email,
+          GIT_COMMITTER_NAME: author.name,
+          GIT_COMMITTER_EMAIL: author.email,
           ...opts.env,
         },
       },

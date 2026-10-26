@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { CompareResponse, SearchResponse, SiteInfo, SourceResponse, WorkspaceStatus } from '../src/shared/types.ts'
+import type { CompareResponse, SearchCommitHit, SearchResponse, SiteInfo, SourceResponse, WorkspaceStatus } from '../src/shared/types.ts'
 import { startServer, type TestServer } from './helpers.ts'
 
 const MARK_START = '\u0002'
@@ -67,7 +67,7 @@ describe('search', () => {
   })
 
   it('searches titles only when full-text indexing is off', async () => {
-    const off = await startServer({ search: { fullText: false } })
+    const off = await startServer({ fullText: false })
     try {
       await off.login()
       const c = await json<{ series: string; chapter: number }>(
@@ -86,14 +86,20 @@ describe('search', () => {
     }
   })
 
-  it('finds commits by message: readers see published history only, the admin sees everything', async () => {
+  it('searches commit messages in the admin API only, over the whole history', async () => {
     await put('alpha/1/content.md', '# Pointers\n\nunpublished change\n')
     await commit('qqwwee unpublished subject')
-    const pub = await json<SearchResponse>(await anon('/api/search?q=qqwwee'))
-    expect(pub.commits).toEqual([])
-    const adm = await json<SearchResponse>(await t.api('/api/search?q=qqwwee'))
-    expect(adm.commits.map((c) => c.subject)).toEqual(['qqwwee unpublished subject'])
-    expect(adm.commits[0]!.articles.map((a) => a.title)).toEqual(['Pointers'])
+    const pub = await json<Record<string, unknown>>(await t.api('/api/search?q=qqwwee'))
+    expect(pub).not.toHaveProperty('commits')
+    expect((await anon('/api/admin/search/commits?q=qqwwee')).status).toBe(401)
+    const adm = await json<SearchCommitHit[]>(await t.api('/api/admin/search/commits?q=qqwwee'))
+    expect(adm.map((c) => c.subject)).toEqual(['qqwwee unpublished subject'])
+    expect(adm[0]!.articles.map((a) => a.title)).toEqual(['Pointers'])
+  })
+
+  it('finds series and tags by name', async () => {
+    const body = await json<SearchResponse>(await anon('/api/search?q=alp'))
+    expect(body.series.map((s) => s.slug)).toEqual(['alpha'])
   })
 })
 
@@ -147,10 +153,10 @@ describe('compare and source', () => {
 })
 
 describe('site settings', () => {
-  it('uses the yaml title until an admin saves settings, then the saved values win', async () => {
-    t = await startServer({ site: { owner: 'young', title: 'From YAML', description: 'd' } })
+  it('uses the defaults until an admin saves settings, then the saved values win', async () => {
+    t = await startServer()
     await t.login()
-    expect((await json<SiteInfo>(await anon('/api/site'))).settings.title).toBe('From YAML')
+    expect((await json<SiteInfo>(await anon('/api/site'))).settings.title).toBe('My Blog')
     const saved = await t.api('/api/admin/site-settings', {
       method: 'PUT',
       json: {

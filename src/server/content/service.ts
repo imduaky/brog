@@ -10,9 +10,17 @@ import {
   JS_DIR,
   META_FILE,
   normalizeRepoPath,
+  PAGE_HTML_FILE,
+  PAGES_DIR,
+  isPageSlug,
 } from '../../shared/paths.ts'
 import type {
+  AdminPin,
   ColorPair,
+  PageRef,
+  PageResponse,
+  PinnedItem,
+  SearchSeriesHit,
   TagCount,
   TagRef,
   ArticleBundle,
@@ -33,9 +41,10 @@ import type {
 import { type DB, getSetting, setSetting } from '../db.ts'
 import { type BlogRepo, RepoError } from '../git/repo.ts'
 import { headingContextAt, imageBaseName } from '../markdown/heading-context.ts'
-import { type RenderResult, renderMarkdown } from '../markdown/render.ts'
+import { type RenderResult, renderMarkdown, sandboxDocument } from '../markdown/render.ts'
 import { LRU } from '../util/lru.ts'
 import { parseChapterMeta, parseSeriesMeta, stringifyMeta } from './meta.ts'
+import { readPins } from './pins.ts'
 import { catalog, createTag, ensureTags, refsByName, renameTag } from './tags.ts'
 
 const IMAGE_MIME: Record<string, string> = {
@@ -62,6 +71,22 @@ function chapterOf(file: string): ChapterLocation | null {
   const [series, chapter, ...rest] = file.split('/')
   if (!series || !chapter || rest.length === 0 || !isSeriesSlug(series) || !isChapterNumber(chapter)) return null
   return { series, chapter: Number(chapter) }
+}
+
+/** "_pages/<slug>/content.md" or "_pages/<slug>/index.html" -> the page, else null. */
+function pageOf(file: string): { slug: string; kind: PageRef['kind'] } | null {
+  const [top, slug, name, ...rest] = file.split('/')
+  if (top !== PAGES_DIR || !slug || rest.length || !isPageSlug(slug)) return null
+  if (name === CONTENT_FILE) return { slug, kind: 'markdown' }
+  if (name === PAGE_HTML_FILE) return { slug, kind: 'html' }
+  return null
+}
+
+/** A folder the editor may work on: a chapter or a custom page. */
+export function isDocDir(dir: string): boolean {
+  const [a, b, ...rest] = dir.split('/')
+  if (!a || !b || rest.length) return false
+  return a === PAGES_DIR ? isPageSlug(b) : isSeriesSlug(a) && isChapterNumber(b)
 }
 
 /** Stored tag names -> catalog refs. A name missing from the catalog gets its name as key (never stored). */
@@ -145,8 +170,8 @@ export class ContentService {
   constructor(
     private readonly repo: BlogRepo,
     private readonly db: DB,
-    /** Index chapter bodies (FTS5). When off, search covers titles, tags and summaries. */
-    private readonly fullText: boolean,
+    /** Index chapter bodies (FTS5). When off, search covers titles, tags and summaries. Read on every use. */
+    private readonly fullText: () => boolean,
   ) {}
 
   // ---------------------------------------------------------------- publishing
@@ -168,6 +193,14 @@ export class ContentService {
     setSetting(this.db, 'published_commit', oid)
     await this.repo.setPublishedRefs(oid)
     await this.rebuildIndex(oid)
+  }
+
+  /** Rebuilds the index of the published commit, e.g. after full-text search was switched on or off. */
+  reindex(): Promise<void> {
+    return this.repo.lock.run(async () => {
+      const oid = this.published()
+      if (oid) await this.rebuildIndex(oid)
+    })
   }
 
   /** Re-derive refs and index from the published commit stored in SQLite. */
@@ -225,6 +258,18 @@ export class ContentService {
       })
     }
 
+    // A page folder with both files is a Markdown page.
+    const pageKinds = new Map<string, PageRef['kind']>()
+    for (const f of files) {
+      const page = pageOf(f.path)
+      if (page && pageKinds.get(page.slug) !== 'markdown') pageKinds.set(page.slug, page.kind)
+    }
+    const pageRows: PageRef[] = []
+    for (const [slug, kind] of pageKinds) {
+      const meta = parseSeriesMeta(await this.repo.cat.readText(`${rev}:${PAGES_DIR}/${slug}/${META_FILE}`), slug)
+      pageRows.push({ slug, title: meta.title, kind })
+    }
+
     // Names are registered first, so every stored tag has a catalog key.
     ensureTags(this.db, articleRows.flatMap((a) => a.tags))
     const refsOf = refsByName(this.db)
@@ -232,6 +277,9 @@ export class ContentService {
     this.db.transaction(() => {
       this.db.prepare('DELETE FROM series_index').run()
       this.db.prepare('DELETE FROM article_index').run()
+      this.db.prepare('DELETE FROM page_index').run()
+      const insP = this.db.prepare('INSERT INTO page_index (slug, title, kind) VALUES (?, ?, ?)')
+      for (const p of pageRows) insP.run(p.slug, p.title, p.kind)
       const insS = this.db.prepare(
         'INSERT INTO series_index (slug, title, description, cover, sort) VALUES (?, ?, ?, ?, ?)',
       )
@@ -264,7 +312,7 @@ export class ContentService {
    */
   private updateSearch(inputs: SearchInput[]) {
     const db = this.db
-    if (!this.fullText) {
+    if (!this.fullText()) {
       db.transaction(() => {
         db.prepare('DELETE FROM search_fts').run()
         db.prepare('DELETE FROM search_state').run()
@@ -438,6 +486,58 @@ export class ContentService {
     return catalog(this.db)
   }
 
+  // ---------------------------------------------------------------- pins
+
+  /** Pinned items that are published, in the admin's order. Unpublished or deleted targets are skipped. */
+  pinnedItems(): PinnedItem[] {
+    const articles = new Map(this.listArticles().map((a) => [`${a.series}/${a.chapter}`, a]))
+    const series = new Map(this.listSeries().map((s) => [s.slug, s]))
+    const tags = new Map(this.listTags(false).map((t) => [t.key, t]))
+    const out: PinnedItem[] = []
+    for (const p of readPins(this.db)) {
+      if (p.kind === 'article' && articles.has(p.key)) out.push({ kind: 'article', key: p.key, article: articles.get(p.key)! })
+      else if (p.kind === 'series' && series.has(p.key)) out.push({ kind: 'series', key: p.key, series: series.get(p.key)! })
+      else if (p.kind === 'tag' && tags.has(p.key)) out.push({ kind: 'tag', key: p.key, tag: tags.get(p.key)! })
+    }
+    return out
+  }
+
+  /** Every pin with its title, null when the target is not published. */
+  adminPins(): AdminPin[] {
+    const resolved = new Map(this.pinnedItems().map((p) => [`${p.kind}:${p.key}`, p]))
+    const names = new Map(catalog(this.db).map((t) => [t.key, t.name]))
+    return readPins(this.db).map((p) => {
+      const r = resolved.get(`${p.kind}:${p.key}`)
+      const title = !r
+        ? null
+        : r.kind === 'article'
+          ? r.article.title
+          : r.kind === 'series'
+            ? r.series.title
+            : (names.get(r.key) ?? r.tag.name)
+      return { ...p, title }
+    })
+  }
+
+  // ---------------------------------------------------------------- custom pages
+
+  /** Published custom pages. */
+  listPages(): PageRef[] {
+    return this.db.prepare('SELECT slug, title, kind FROM page_index ORDER BY slug').all() as PageRef[]
+  }
+
+  async getPage(slug: string, rev?: string): Promise<PageResponse> {
+    const oid = await this.resolveReaderRev(rev)
+    if (!isPageSlug(slug)) throw new RepoError('page not found', 404)
+    const dir = `${PAGES_DIR}/${slug}`
+    const title = parseSeriesMeta(await this.repo.cat.readText(`${oid}:${dir}/${META_FILE}`), slug).title
+    const result = await this.renderDirAt(oid, dir, slug)
+    if (result) return { slug, title, kind: 'markdown', html: result.html, toc: result.toc, rev: oid }
+    const html = await this.repo.cat.readText(`${oid}:${dir}/${PAGE_HTML_FILE}`)
+    if (html === null) throw new RepoError('page not found', 404)
+    return { slug, title, kind: 'html', html: sandboxDocument(html), toc: [], rev: oid }
+  }
+
   // ---------------------------------------------------------------- search
 
   /**
@@ -448,7 +548,7 @@ export class ContentService {
   search(q: string, limit = 30): SearchArticleHit[] {
     const query = q.trim().slice(0, 100)
     if (query.length < 2) return []
-    if (!this.fullText) return this.searchMeta(query, limit)
+    if (!this.fullText()) return this.searchMeta(query, limit)
     return query.length >= 3 ? this.searchFts(query, limit) : this.searchShort(query, limit)
   }
 
@@ -539,6 +639,25 @@ export class ContentService {
       tags: storedRefs(r.tags),
       snippet: excerpt(r.title.toLowerCase().includes(query.toLowerCase()) ? r.summary : r.summary || r.title, query),
     }))
+  }
+
+  /** Published series whose title or description contains the query. */
+  searchSeries(q: string): SearchSeriesHit[] {
+    const query = q.trim().slice(0, 100).toLowerCase()
+    if (query.length < 2) return []
+    return this.listSeries()
+      .filter((s) => s.title.toLowerCase().includes(query) || s.description.toLowerCase().includes(query))
+      .slice(0, 10)
+      .map((s) => ({ slug: s.slug, title: s.title, description: s.description, count: s.chapters.length }))
+  }
+
+  /** Tags in use whose name contains the query. */
+  searchTags(q: string): TagCount[] {
+    const query = q.trim().slice(0, 100).toLowerCase()
+    if (query.length < 1) return []
+    return this.listTags(false)
+      .filter((t) => t.name.toLowerCase().includes(query))
+      .slice(0, 20)
   }
 
   /** Commit messages matching `query`, with the articles each one touched. */
@@ -681,8 +800,12 @@ export class ContentService {
     }
   }
 
-  private async renderAt(rev: string, series: string, chapter: number): Promise<RenderResult | null> {
-    const dir = `${series}/${chapter}`
+  private renderAt(rev: string, series: string, chapter: number): Promise<RenderResult | null> {
+    return this.renderDirAt(rev, `${series}/${chapter}`, `${chapter}`)
+  }
+
+  /** Renders <dir>/content.md at a revision, with the folder's images and scripts. */
+  private async renderDirAt(rev: string, dir: string, docId: string): Promise<RenderResult | null> {
     const entries = (await this.repo.listTree(rev, dir)).filter((e) => e.type === 'blob')
     const content = entries.find((e) => e.path === `${dir}/${CONTENT_FILE}`)
     if (!content) return null
@@ -705,7 +828,7 @@ export class ContentService {
       baseDir: dir,
       resolveAsset: (p) => assets.get(p) ?? null,
       readText: (p) => texts.get(p) ?? null,
-      docId: `${chapter}`,
+      docId,
     })
     this.renderCache.set(key, result)
     return result
@@ -753,15 +876,15 @@ export class ContentService {
    * ("开始-开始第一步_1.webp"), store it in the chapter's img/ folder.
    */
   uploadImage(input: {
-    series: string
-    chapter: number
+    /** Chapter or page folder */
+    dir: string
     data: Buffer
     markdown: string
     offset: number
   }): Promise<ImageUploadResponse> {
     return this.repo.lock.run(async () => {
-      const dir = `${input.series}/${input.chapter}`
-      if (!(await this.repo.existsWorking(`${dir}/${CONTENT_FILE}`))) throw new RepoError('chapter not found', 404)
+      const dir = input.dir
+      if (!isDocDir(dir) || !(await this.repo.existsWorking(`${dir}/${CONTENT_FILE}`))) throw new RepoError('article not found', 404)
       const webp = await sharp(input.data, { animated: true })
         .rotate()
         .webp({ quality: 82 })
@@ -771,7 +894,7 @@ export class ContentService {
         })
       const meta = parseChapterMeta((await this.repo.readWorking(`${dir}/${META_FILE}`))?.toString('utf8') ?? null, '')
       const ctx = headingContextAt(input.markdown, input.offset)
-      const base = imageBaseName(ctx, meta.title || input.series)
+      const base = imageBaseName(ctx, meta.title || dir.split('/')[0]!)
       let index = ctx.imageIndex
       let rel = `${IMG_DIR}/${base}_${index}.webp`
       while (await this.repo.existsWorking(`${dir}/${rel}`)) rel = `${IMG_DIR}/${base}_${++index}.webp`
@@ -842,8 +965,8 @@ export class ContentService {
   }
 
   /** Live preview of the editor content, resolving assets from the work tree. */
-  async preview(series: string, chapter: number, source: string): Promise<RenderResult> {
-    const dir = `${series}/${chapter}`
+  async preview(dir: string, source: string): Promise<RenderResult> {
+    if (!isDocDir(dir)) throw new RepoError('invalid folder')
     const files = await this.repo.listWorking(dir)
     const texts = new Map<string, string>()
     for (const f of files.filter((f) => f.startsWith(`${dir}/${JS_DIR}/`) || TEXT_ASSET.test(f))) {
@@ -856,7 +979,42 @@ export class ContentService {
       resolveAsset: (p) =>
         fileSet.has(p) && imageMime(p) ? `/api/admin/workspace/raw?path=${encodeURIComponent(p)}` : null,
       readText: (p) => texts.get(p) ?? null,
-      docId: `${chapter}`,
+      docId: dir.split('/')[1]!,
+    })
+  }
+
+  /** Custom pages in the work tree, with uncommitted-change markers. */
+  async workspacePages(): Promise<(PageRef & { dirty: boolean })[]> {
+    const files = await this.repo.listWorking(PAGES_DIR).catch(() => [] as string[])
+    const dirty = (await this.repo.status()).map((s) => s.path)
+    const kinds = new Map<string, PageRef['kind']>()
+    for (const f of files) {
+      const page = pageOf(f)
+      if (page && kinds.get(page.slug) !== 'markdown') kinds.set(page.slug, page.kind)
+    }
+    const out: (PageRef & { dirty: boolean })[] = []
+    for (const [slug, kind] of kinds) {
+      const dir = `${PAGES_DIR}/${slug}`
+      const meta = parseSeriesMeta(await this.readWorkingText(`${dir}/${META_FILE}`), slug)
+      out.push({ slug, title: meta.title, kind, dirty: dirty.some((p) => p.startsWith(`${dir}/`)) })
+    }
+    return out.sort((a, b) => a.slug.localeCompare(b.slug))
+  }
+
+  /** Creates _pages/<slug>/ with a title and an empty Markdown or HTML file. */
+  createPage(input: { slug: string; title: string; kind: PageRef['kind'] }): Promise<PageRef> {
+    return this.repo.lock.run(async () => {
+      if (!isPageSlug(input.slug)) throw new RepoError('invalid page name')
+      const dir = `${PAGES_DIR}/${input.slug}`
+      if ((await this.repo.listWorking(dir).catch(() => [])).length) throw new RepoError('page already exists', 409)
+      await this.repo.writeWorking(`${dir}/${META_FILE}`, stringifyMeta({ title: input.title, description: '' }))
+      if (input.kind === 'markdown') await this.repo.writeWorking(`${dir}/${CONTENT_FILE}`, `# ${input.title}\n\n`)
+      else
+        await this.repo.writeWorking(
+          `${dir}/${PAGE_HTML_FILE}`,
+          `<!doctype html>\n<html>\n<head>\n  <meta charset="utf-8">\n  <title>${input.title.replace(/[<&]/g, '')}</title>\n</head>\n<body>\n\n</body>\n</html>\n`,
+        )
+      return { slug: input.slug, title: input.title, kind: input.kind }
     })
   }
 }

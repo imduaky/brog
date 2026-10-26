@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { ArticleSummary, SeriesSummary } from '@shared/types'
 import { useParams } from 'react-router'
 import { ArticleCard } from '@/components/article-card'
+import { PinButton } from '@/components/pin-button'
 import { ErrorState, Loading } from '@/components/states'
 import { api, enc } from '@/lib/api'
 
@@ -19,7 +20,10 @@ export default function SeriesPage() {
   return (
     <div className="mx-auto max-w-3xl">
       <title>{info.data.title}</title>
-      <h1 className="text-2xl font-semibold">{info.data.title}</h1>
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="mr-auto text-2xl font-semibold">{info.data.title}</h1>
+        <PinButton kind="series" pinKey={info.data.slug} />
+      </div>
       {info.data.description && <p className="mt-2 text-muted-foreground">{info.data.description}</p>}
       <div className="mt-8 grid gap-3">
         {sorted.map((a) => (

@@ -3,7 +3,7 @@ import { languages } from '@codemirror/language-data'
 import { EditorView, ViewPlugin } from '@codemirror/view'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
-import type { ChapterMeta, ImageUploadResponse, SeriesMeta, TagCount, TocItem, WorkspaceStatus } from '@shared/types'
+import type { ChapterMeta, ImageUploadResponse, PageRef, SeriesMeta, TagCount, TocItem, WorkspaceStatus } from '@shared/types'
 import { ArrowLeft, Check, Columns2, Eye, GitCommitHorizontal, Loader2, PencilLine, Plus, Settings2, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
@@ -38,10 +38,37 @@ function useDebounced<T>(value: T, ms: number): T {
   return v
 }
 
+/** What the editor works on: a chapter, or a custom page under _pages/. */
+type Doc =
+  | { type: 'chapter'; series: string; chapter: number; dir: string; file: 'content.md'; kind: 'markdown' }
+  | { type: 'page'; slug: string; dir: string; file: string; kind: PageRef['kind'] }
+
 export default function EditorPage() {
   const { series = '', chapter: chapterParam = '' } = useParams()
   const chapter = Number(chapterParam)
-  const contentPath = `${series}/${chapter}/content.md`
+  const doc: Doc = { type: 'chapter', series, chapter, dir: `${series}/${chapter}`, file: 'content.md', kind: 'markdown' }
+  return <EditorLoader doc={doc} />
+}
+
+export function PageEditorPage() {
+  const { slug = '' } = useParams()
+  const pages = useQuery({ queryKey: ['admin', 'pages'], queryFn: () => api<(PageRef & { dirty: boolean })[]>('/api/admin/pages') })
+  if (pages.isPending) return <Loading />
+  if (pages.isError) return <ErrorState error={pages.error} />
+  const page = pages.data.find((p) => p.slug === slug)
+  if (!page) return <ErrorState error={new Error('页面不存在')} />
+  const doc: Doc = {
+    type: 'page',
+    slug,
+    dir: `_pages/${slug}`,
+    file: page.kind === 'html' ? 'index.html' : 'content.md',
+    kind: page.kind,
+  }
+  return <EditorLoader doc={doc} />
+}
+
+function EditorLoader({ doc }: { doc: Doc }) {
+  const contentPath = `${doc.dir}/${doc.file}`
   const file = useQuery({
     queryKey: ['admin', 'file', contentPath],
     queryFn: () => api<{ exists: boolean; content: string }>(`/api/admin/file?path=${enc(contentPath)}`),
@@ -51,11 +78,31 @@ export default function EditorPage() {
   if (file.isPending) return <Loading />
   if (file.isError) return <ErrorState error={file.error} />
   if (!file.data.exists) return <ErrorState error={new Error('文章不存在')} />
-  return <Editor key={contentPath} series={series} chapter={chapter} initial={file.data.content} />
+  return <Editor key={contentPath} target={doc} initial={file.data.content} />
 }
 
-function Editor({ series, chapter, initial }: { series: string; chapter: number; initial: string }) {
-  const contentPath = `${series}/${chapter}/content.md`
+type LanguageSupport = Awaited<ReturnType<(typeof languages)[number]['load']>>
+
+/** CodeMirror language for an HTML page, loaded on demand. */
+function useHtmlLanguage(enabled: boolean) {
+  const [lang, setLang] = useState<LanguageSupport | null>(null)
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    void languages
+      .find((l) => l.extensions.includes('html'))
+      ?.load()
+      .then((l) => !cancelled && setLang(l))
+    return () => {
+      cancelled = true
+    }
+  }, [enabled])
+  return lang
+}
+
+function Editor({ target, initial }: { target: Doc; initial: string }) {
+  const { dir, kind } = target
+  const contentPath = `${dir}/${target.file}`
   const [doc, setDoc] = useState(initial)
   const [save, setSave] = useState<SaveState>('saved')
   const [layout, setLayout] = useState<Layout>('split')
@@ -107,14 +154,16 @@ function Editor({ series, chapter, initial }: { series: string; chapter: number;
   // result stays on screen until the new one arrives (no spinner, no height flash).
   const previewDoc = useDebounced(doc, 300)
   useEffect(() => {
+    // An HTML page previews as itself in a sandboxed frame; nothing to render on the server.
+    if (kind === 'html') return
     let cancelled = false
-    api<{ html: string; toc: TocItem[] }>('/api/admin/preview', { method: 'POST', json: { series, chapter, content: previewDoc } })
+    api<{ html: string; toc: TocItem[] }>('/api/admin/preview', { method: 'POST', json: { dir, content: previewDoc } })
       .then((r) => !cancelled && setPreview(r))
       .catch((err) => !cancelled && setPreview({ html: `<p style="color:red">${String(err)}</p>`, toc: [] }))
     return () => {
       cancelled = true
     }
-  }, [previewDoc, series, chapter])
+  }, [previewDoc, dir, kind])
 
   // ------------------------------------------------------------ scroll sync (editor -> preview)
   // Preview blocks carry data-line (their source line). The editor's top visible line
@@ -165,8 +214,7 @@ function Editor({ series, chapter, initial }: { series: string; chapter: number;
         const placeholder = `![上传中 ${Math.random().toString(36).slice(2, 8)}…]()`
         const form = new FormData()
         form.set('file', f)
-        form.set('series', series)
-        form.set('chapter', String(chapter))
+        form.set('dir', dir)
         form.set('markdown', view.state.doc.toString())
         form.set('offset', String(pos))
         view.dispatch({ changes: { from: pos, insert: placeholder }, selection: { anchor: pos + placeholder.length } })
@@ -182,13 +230,15 @@ function Editor({ series, chapter, initial }: { series: string; chapter: number;
         }
       }
     },
-    [series, chapter],
+    [dir],
   )
 
+  const htmlLanguage = useHtmlLanguage(kind === 'html')
   // Built once per document. Depends only on stable callbacks, so typing never reconfigures the editor.
+  // (An HTML page adds its language once, when it has loaded.)
   const extensions = useMemo(
     () => [
-      markdown({ base: markdownLanguage, codeLanguages: languages }),
+      kind === 'html' ? (htmlLanguage ?? []) : markdown({ base: markdownLanguage, codeLanguages: languages }),
       EditorView.lineWrapping,
       // Scroll events go to the view's own scroller, so the listener lives on the view.
       ViewPlugin.define((view) => {
@@ -210,6 +260,8 @@ function Editor({ series, chapter, initial }: { series: string; chapter: number;
       }),
       EditorView.domEventHandlers({
         paste(event, view) {
+          // Pasted images become Markdown; an HTML page has no place for them.
+          if (kind === 'html') return false
           const files = [...(event.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'))
           if (!files.length) return false
           event.preventDefault()
@@ -217,6 +269,7 @@ function Editor({ series, chapter, initial }: { series: string; chapter: number;
           return true
         },
         drop(event, view) {
+          if (kind === 'html') return false
           const files = [...(event.dataTransfer?.files ?? [])].filter((f) => f.type.startsWith('image/'))
           if (!files.length) return false
           event.preventDefault()
@@ -235,7 +288,7 @@ function Editor({ series, chapter, initial }: { series: string; chapter: number;
         },
       }),
     ],
-    [upload, saveNow],
+    [upload, saveNow, kind, htmlLanguage],
   )
 
   return (
@@ -263,7 +316,7 @@ function Editor({ series, chapter, initial }: { series: string; chapter: number;
             </TabsList>
           </Tabs>
           <Button variant="outline" size="sm" onClick={() => setMetaOpen(true)}>
-            <Settings2 /> 文章信息
+            <Settings2 /> {target.type === 'chapter' ? '文章信息' : '页面信息'}
           </Button>
           <Button
             size="sm"
@@ -294,14 +347,26 @@ function Editor({ series, chapter, initial }: { series: string; chapter: number;
             autoFocus
           />
         </div>
-        {layout !== 'edit' && (
-          <div ref={previewBox} className="min-h-0 overflow-y-auto">
-            <div className="mx-auto max-w-3xl px-8 py-6">{preview && <MarkdownView html={preview.html} />}</div>
-          </div>
-        )}
+        {layout !== 'edit' &&
+          (kind === 'html' ? (
+            <iframe title="预览" sandbox="allow-scripts" srcDoc={previewDoc} className="block h-full w-full bg-background" />
+          ) : (
+            <div ref={previewBox} className="relative min-h-0 overflow-y-auto">
+              <div className="mx-auto max-w-3xl px-8 py-6">{preview && <MarkdownView html={preview.html} />}</div>
+            </div>
+          ))}
       </div>
-      <MetaSheet series={series} chapter={chapter} open={metaOpen} onOpenChange={setMetaOpen} />
-      <CommitDialog series={series} chapter={chapter} open={commitOpen} onOpenChange={setCommitOpen} />
+      {target.type === 'chapter' ? (
+        <MetaSheet series={target.series} chapter={target.chapter} open={metaOpen} onOpenChange={setMetaOpen} />
+      ) : (
+        <PageMetaDialog slug={target.slug} open={metaOpen} onOpenChange={setMetaOpen} />
+      )}
+      <CommitDialog
+        paths={(p) => p.startsWith(`${dir}/`) || (target.type === 'chapter' && p === `${target.series}/meta.yaml`)}
+        what={target.type === 'chapter' ? '这篇文章' : '这个页面'}
+        open={commitOpen}
+        onOpenChange={setCommitOpen}
+      />
     </div>
   )
 }
@@ -559,11 +624,11 @@ function MetaSheet({
           </div>
           <Separator />
           <div className="grid gap-2">
-            <Label htmlFor="s-title">系列标题</Label>
+            <Label htmlFor="s-title">合集标题</Label>
             <Input id="s-title" value={sForm.title} onChange={(e) => setSForm({ ...sForm, title: e.target.value })} />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="s-desc">系列简介</Label>
+            <Label htmlFor="s-desc">合集简介</Label>
             <Textarea id="s-desc" rows={2} value={sForm.description} onChange={(e) => setSForm({ ...sForm, description: e.target.value })} />
           </div>
         </div>
@@ -578,26 +643,24 @@ function MetaSheet({
 }
 
 function CommitDialog({
-  series,
-  chapter,
+  paths: belongs,
+  what,
   open,
   onOpenChange,
 }: {
-  series: string
-  chapter: number
+  /** Which changed files belong to the document being edited */
+  paths: (path: string) => boolean
+  what: string
   open: boolean
   onOpenChange: (o: boolean) => void
 }) {
-  const dir = `${series}/${chapter}`
   const [message, setMessage] = useState('')
   const status = useQuery({
     queryKey: ['admin', 'status'],
     queryFn: () => api<WorkspaceStatus>('/api/admin/status'),
     enabled: open,
   })
-  const paths = (status.data?.changes ?? [])
-    .map((c) => c.path)
-    .filter((p) => p.startsWith(`${dir}/`) || p === `${series}/meta.yaml`)
+  const paths = (status.data?.changes ?? []).map((c) => c.path).filter(belongs)
 
   const commit = useAdminMutation(
     async () => {
@@ -620,8 +683,8 @@ function CommitDialog({
           }}
         >
           <DialogHeader>
-            <DialogTitle>提交本篇</DialogTitle>
-            <DialogDescription>暂存并提交这篇文章的所有修改（{paths.length} 个文件）。其它文件的修改请在工作区页面处理。</DialogDescription>
+            <DialogTitle>提交{what}</DialogTitle>
+            <DialogDescription>暂存并提交{what}的所有修改（{paths.length} 个文件）。其它文件的修改请在工作区页面处理。</DialogDescription>
           </DialogHeader>
           {paths.length > 0 && (
             <ul className="max-h-40 overflow-y-auto rounded-md border px-3 py-2 font-mono text-xs">
@@ -636,6 +699,51 @@ function CommitDialog({
           <DialogFooter>
             <Button type="submit" disabled={!message.trim() || paths.length === 0 || commit.isPending}>
               提交 Commit
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Title of a custom page (_pages/<slug>/meta.yaml). Shown in the browser tab and the admin lists. */
+function PageMetaDialog({ slug, open, onOpenChange }: { slug: string; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const meta = useQuery({
+    queryKey: ['admin', 'page-meta', slug],
+    queryFn: () => api<{ title: string }>(`/api/admin/page-meta/${enc(slug)}`),
+    enabled: open,
+  })
+  const [title, setTitle] = useState('')
+  useEffect(() => {
+    if (meta.data) setTitle(meta.data.title)
+  }, [meta.data])
+  const save = useAdminMutation(
+    () => api(`/api/admin/page-meta/${enc(slug)}`, { method: 'PUT', json: { title: title.trim() } }),
+    '已保存到工作区',
+  )
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <form
+          className="grid gap-4"
+          onSubmit={async (e) => {
+            e.preventDefault()
+            await save.mutateAsync(undefined)
+            onOpenChange(false)
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>页面信息</DialogTitle>
+            <DialogDescription>页面地址为 /p/{slug}。修改后需要提交并发布，读者才会看到。</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="pm-title">标题</Label>
+            <Input id="pm-title" value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button type="submit" disabled={!title.trim() || save.isPending}>
+              保存
             </Button>
           </DialogFooter>
         </form>

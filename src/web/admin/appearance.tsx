@@ -1,32 +1,18 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { SiteSettings } from '@shared/types'
 import { ColorPairField } from '@/components/color-field'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { THEME_PRESETS } from '@shared/color'
 import { useState } from 'react'
-import { toast } from 'sonner'
-import { api } from '@/lib/api'
+import { useSaveSite } from './settings-shared'
 
 /** Colors of the reading paper and the home page, each in a light and a dark variant. */
 export function AppearanceCard({ settings }: { settings: SiteSettings }) {
-  const qc = useQueryClient()
   const [paper, setPaper] = useState(settings.paper)
   const [homeColor, setHomeColor] = useState(settings.home.color)
   const dirty = JSON.stringify([paper, homeColor]) !== JSON.stringify([settings.paper, settings.home.color])
 
-  const save = useMutation({
-    mutationFn: () =>
-      api<SiteSettings>('/api/admin/site-settings', {
-        method: 'PUT',
-        json: { ...settings, paper, home: { ...settings.home, color: homeColor } },
-      }),
-    onSuccess: () => {
-      toast.success('外观已保存')
-      void qc.invalidateQueries({ queryKey: ['site'] })
-    },
-    onError: (err) => toast.error(err instanceof Error ? err.message : String(err)),
-  })
+  const save = useSaveSite('外观已保存')
 
   return (
     <Card>
@@ -50,7 +36,7 @@ export function AppearanceCard({ settings }: { settings: SiteSettings }) {
           <ColorPairField idPrefix="home" label="首页背景" value={homeColor} onChange={setHomeColor} />
         </div>
         <div className="flex justify-end border-t pt-5">
-          <Button onClick={() => save.mutate(undefined)} disabled={!dirty || save.isPending}>
+          <Button onClick={() => save.mutate({ paper, home: { ...settings.home, color: homeColor } })} disabled={!dirty || save.isPending}>
             保存外观
           </Button>
         </div>

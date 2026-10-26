@@ -1,37 +1,68 @@
+import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
 import { serve } from '@hono/node-server'
 import { resetPassword } from './auth/password.ts'
 import { bootstrap } from './bootstrap.ts'
-import { loadConfig } from './config.ts'
+import { resolveStartup } from './config.ts'
 import { openDb } from './db.ts'
+import { resetServerSettings } from './server-settings.ts'
 
 const HELP = `brog - git-backed blog
 
-Usage: brog [--config brog.yaml] [command]
+Usage: brog [options] [command]
 
 Commands:
   serve            start the server (default)
   reset-password   forget the custom admin password; a random one is printed on next start
+  reset-settings   restore the default server settings (cookie, CORS, proxy, ...)
+
+Options (environment variable in brackets):
+  --host <addr>       listen address, default 0.0.0.0        [BROG_HOST]
+  --port <n>          listen port, default 8080              [BROG_PORT]
+  --data <dir>        data directory, default ./data         [BROG_DATA_DIR]
+  --web-dist <dir>    built frontend, default ./dist/web     [BROG_WEB_DIST]
+  --api-only          do not serve the frontend              [BROG_SERVE_WEB=false]
+  --git <path>        git executable, default git            [BROG_GIT]
+
+Environment only:
+  BROG_GITHUB_TOKEN   token for comments (GitHub Discussions). Never stored or shown.
+  BROG_GITHUB_API     GraphQL endpoint, default https://api.github.com/graphql
+
+All other settings are edited in the admin panel (Settings).
 `
 
 async function main() {
   const { values, positionals } = parseArgs({
-    options: { config: { type: 'string', short: 'c' }, help: { type: 'boolean', short: 'h' } },
+    options: {
+      host: { type: 'string' },
+      port: { type: 'string', short: 'p' },
+      data: { type: 'string' },
+      'web-dist': { type: 'string' },
+      'api-only': { type: 'boolean' },
+      git: { type: 'string' },
+      help: { type: 'boolean', short: 'h' },
+    },
     allowPositionals: true,
   })
   if (values.help) {
     console.log(HELP)
     return
   }
-  const config = loadConfig(values.config)
+  const startup = resolveStartup(values, process.env)
   const command = positionals[0] ?? 'serve'
 
-  if (command === 'reset-password') {
-    const db = openDb(path.join(config.resolved.dataDir, 'brog.db'))
-    resetPassword(db)
+  if (command === 'reset-password' || command === 'reset-settings') {
+    mkdirSync(startup.dataDir, { recursive: true })
+    const db = openDb(path.join(startup.dataDir, 'brog.db'))
+    if (command === 'reset-password') {
+      resetPassword(db)
+      console.log('Admin password reset. A new random password will be printed on the next start.')
+    } else {
+      resetServerSettings(db)
+      console.log('Server settings reset to defaults. They apply on the next start.')
+    }
     db.close()
-    console.log('Admin password reset. A new random password will be printed on the next start.')
     return
   }
   if (command !== 'serve') {
@@ -39,7 +70,7 @@ async function main() {
     process.exit(1)
   }
 
-  const server = await bootstrap(config)
+  const server = await bootstrap(startup)
   if (server.generatedPassword) {
     const line = '='.repeat(60)
     console.log(`\n${line}\n  Admin password: ${server.generatedPassword}\n`)
@@ -47,10 +78,9 @@ async function main() {
     console.log('  in the admin panel (type "www" on any page, then Settings).')
     console.log(`${line}\n`)
   }
-  const { host, port } = config.server
-  const http = serve({ fetch: server.app.fetch, hostname: host, port }, (info) => {
+  const http = serve({ fetch: server.app.fetch, hostname: startup.host, port: startup.port }, (info) => {
     console.log(`brog listening on http://${info.address}:${info.port}`)
-    if (!config.server.serveWeb) console.log('serveWeb is off: API and git only')
+    if (!startup.serveWeb) console.log('frontend is not served (--api-only): API and git only')
   })
   const shutdown = () => {
     http.close()
@@ -59,6 +89,8 @@ async function main() {
   }
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
+  // Started by the dev runner (scripts/dev.mjs) over an IPC channel: when that runner is gone, stop too.
+  if (process.send) process.once('disconnect', shutdown)
 }
 
 main().catch((err) => {

@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import type { ArticleSummary, HomeBackground } from '@shared/types'
+import type { ArticleSummary, HomeBackground, PinnedItem } from '@shared/types'
+import { createPortal } from 'react-dom'
 import { ArticleCard } from '@/components/article-card'
+import { PinnedSeriesCard, PinnedTagCard } from '@/components/pinned-card'
 import { ErrorState, Loading } from '@/components/states'
 import { useTheme } from '@/hooks/use-theme'
 import { useSite } from '@/hooks/use-site'
@@ -10,6 +12,7 @@ import { cn } from '@/lib/utils'
 export default function HomePage() {
   const site = useSite()
   const articles = useQuery({ queryKey: ['articles'], queryFn: () => api<ArticleSummary[]>('/api/articles') })
+  const pins = useQuery({ queryKey: ['pins'], queryFn: () => api<PinnedItem[]>('/api/pins') })
   const settings = site.data?.settings
   const columns = settings?.listColumns ?? 'auto'
 
@@ -31,18 +34,43 @@ export default function HomePage() {
       ) : articles.data.length === 0 ? (
         <p className="py-20 text-center text-muted-foreground">还没有文章</p>
       ) : (
-        <div className={cn('grid items-start gap-4', grid)}>
-          {articles.data.map((a, i) => (
-            <ArticleCard key={`${a.series}/${a.chapter}`} article={a} index={i} />
-          ))}
-        </div>
+        <ArticleList articles={articles.data} pins={pins.data ?? []} grid={grid} />
       )}
     </div>
   )
 }
 
-/** The home page background: a solid color behind the list, per mode. */
+/** Pinned items first, in the admin's order; pinned articles are not repeated below. */
+function ArticleList({ articles, pins, grid }: { articles: ArticleSummary[]; pins: PinnedItem[]; grid: string }) {
+  const pinnedArticles = new Set(pins.filter((p) => p.kind === 'article').map((p) => p.key))
+  const rest = articles.filter((a) => !pinnedArticles.has(`${a.series}/${a.chapter}`))
+  return (
+    <div className={cn('grid items-start gap-4', grid)}>
+      {pins.map((p, i) =>
+        p.kind === 'article' ? (
+          <ArticleCard key={`pin:${p.key}`} article={p.article} index={i} pinned />
+        ) : p.kind === 'series' ? (
+          <PinnedSeriesCard key={`pin-s:${p.key}`} series={p.series} index={i} />
+        ) : (
+          <PinnedTagCard key={`pin-t:${p.key}`} tag={p.tag} index={i} />
+        ),
+      )}
+      {rest.map((a, i) => (
+        <ArticleCard key={`${a.series}/${a.chapter}`} article={a} index={pins.length + i} />
+      ))}
+    </div>
+  )
+}
+
+/**
+ * The home page background: a solid color behind the list, per mode. Rendered into
+ * <body> so it sits behind the whole page; inside the page's fade wrapper (its own
+ * stacking context) it would cover the footer.
+ */
 function HomeBackdrop({ home }: { home: HomeBackground }) {
   const { resolved } = useTheme()
-  return <div aria-hidden className="pointer-events-none fixed inset-0 -z-10" style={{ backgroundColor: home.color[resolved] }} />
+  return createPortal(
+    <div aria-hidden className="pointer-events-none fixed inset-0 -z-10" style={{ backgroundColor: home.color[resolved] }} />,
+    document.body,
+  )
 }

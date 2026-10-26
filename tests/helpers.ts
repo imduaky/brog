@@ -7,7 +7,8 @@ import { serve } from '@hono/node-server'
 import { CSRF_HEADER } from '../src/server/app.ts'
 import { sha256Hex } from '../src/server/auth/password.ts'
 import { bootstrap, type Server } from '../src/server/bootstrap.ts'
-import { resolveConfig } from '../src/server/config.ts'
+import { resolveStartup } from '../src/server/config.ts'
+import type { ServerSettings } from '../src/shared/types.ts'
 
 export interface TestServer {
   server: Server
@@ -20,10 +21,14 @@ export interface TestServer {
   close: () => Promise<void>
 }
 
-export async function startServer(extra: Record<string, unknown> = {}): Promise<TestServer> {
+export async function startServer(
+  settings: Partial<ServerSettings> = {},
+  extra: { githubToken?: string; fetch?: typeof fetch } = {},
+): Promise<TestServer> {
   const dir = mkdtempSync(path.join(tmpdir(), 'brog-test-'))
-  const config = resolveConfig({ server: { serveWeb: false }, site: { owner: 'young' }, ...extra }, dir)
-  const server = await bootstrap(config)
+  const startup = { ...resolveStartup({ 'api-only': true, data: path.join(dir, 'data') }, {}, dir), githubToken: extra.githubToken }
+  const server = await bootstrap(startup, { fetch: extra.fetch })
+  server.ctx.settings.set({ ...server.ctx.settings.get(), owner: 'young', ...settings })
   const password = server.generatedPassword!
   const http = serve({ fetch: server.app.fetch, port: 0, hostname: '127.0.0.1' })
   await new Promise<void>((r) => http.once('listening', () => r()))

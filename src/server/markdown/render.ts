@@ -206,6 +206,16 @@ function renderCode(md: MarkdownIt, hl: Highlighter, code: string, lang: string,
 const DEMO_BOOTSTRAP = `<script>(function(){var s=function(){parent.postMessage({type:"brog-demo-height",height:document.documentElement.scrollHeight},"*")};new ResizeObserver(s).observe(document.documentElement);addEventListener("load",s)})()</script>`
 const DEMO_STYLE = `<style>:root{color-scheme:light dark;font-family:system-ui,sans-serif;font-size:15px}body{margin:12px}</style>`
 
+/**
+ * A custom HTML page, prepared for a sandboxed iframe: the height reporter goes first
+ * in <head> (or the page is wrapped when it has none). The page itself is not filtered;
+ * the sandbox (scripts only, opaque origin) is what isolates it from the site.
+ */
+export function sandboxDocument(html: string): string {
+  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => `${m}${DEMO_BOOTSTRAP}`)
+  return `<!doctype html><html><head><meta charset="utf-8">${DEMO_BOOTSTRAP}</head><body>${html}</body></html>`
+}
+
 function renderLiveDemo(
   md: MarkdownIt,
   hl: Highlighter,

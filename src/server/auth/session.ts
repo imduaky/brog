@@ -17,8 +17,13 @@ export interface Session {
 export class Sessions {
   constructor(
     private readonly db: DB,
-    private readonly days: number,
+    /** Read on every use, so a changed setting applies to the next login or renewal. */
+    private readonly lifetimeDays: () => number,
   ) {}
+
+  private get days() {
+    return this.lifetimeDays()
+  }
 
   get maxAgeSeconds() {
     return this.days * 24 * 60 * 60
@@ -32,6 +37,18 @@ export class Sessions {
       .prepare('INSERT INTO sessions (token_hash, created_at, expires_at, renewed_at, user_agent) VALUES (?, ?, ?, ?, ?)')
       .run(hash(token), now, expiresAt, now, userAgent?.slice(0, 200) ?? null)
     return { token, expiresAt }
+  }
+
+  /**
+   * Whether a token is a live session, without renewing it. Public responses use this:
+   * they must not write a Set-Cookie or touch the database.
+   */
+  isValid(token: string | undefined): boolean {
+    if (!token) return false
+    const row = this.db.prepare('SELECT expires_at FROM sessions WHERE token_hash = ?').get(hash(token)) as
+      | { expires_at: number }
+      | undefined
+    return !!row && row.expires_at > Date.now()
   }
 
   /** Validates a session token and slides its expiry forward to `days` from now. */

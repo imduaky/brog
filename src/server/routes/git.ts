@@ -14,7 +14,7 @@ const UNAUTHORIZED = () =>
  * - /git/blog.git       anyone can clone/fetch the published commit; push needs auth.
  * - /git/full/blog.git  always asks for credentials and serves the full main (drafts included).
  *   git only sends credentials after a 401 challenge, so writers use this URL.
- * Auth is HTTP Basic: username = site.owner, password = a token issued in the admin UI.
+ * Auth is HTTP Basic: username = the owner (server settings), password = a token issued in the admin UI.
  */
 export function gitRoutes(ctx: AppContext) {
   const app = new Hono<Env>()
@@ -25,7 +25,7 @@ export function gitRoutes(ctx: AppContext) {
     const url = new URL(c.req.url)
     const subPath = url.pathname.replace(/^.*\/blog\.git/, '')
     if (!isSmartPath(subPath)) return c.text('only the smart HTTP protocol is supported\n', 404)
-    const ip = clientIp(c, ctx.config.server.trustProxy)
+    const ip = clientIp(ctx, c)
 
     let authUser: string | null = null
     const auth = c.req.header('authorization')
@@ -35,7 +35,7 @@ export function gitRoutes(ctx: AppContext) {
       const sep = decoded.indexOf(':')
       const user = decoded.slice(0, sep)
       const token = decoded.slice(sep + 1)
-      if (sep < 0 || user !== ctx.config.site.owner || !ctx.tokens.verify(token)) {
+      if (sep < 0 || user !== ctx.settings.get().owner || !ctx.tokens.verify(token)) {
         ctx.pushLimiter.fail(ip)
         return UNAUTHORIZED()
       }
@@ -44,7 +44,7 @@ export function gitRoutes(ctx: AppContext) {
     if (!authUser && (requireAuth || isPushRequest(subPath, url.search.slice(1)))) return UNAUTHORIZED()
 
     return serveGitHttp(
-      ctx.config.git.binary,
+      ctx.startup.gitBinary,
       ctx.repo,
       {
         method: c.req.method,

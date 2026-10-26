@@ -10,8 +10,8 @@ export default function SeriesListPage() {
   if (series.isError) return <ErrorState error={series.error} />
   return (
     <div className="mx-auto max-w-3xl">
-      <title>系列</title>
-      <h1 className="mb-6 text-2xl font-semibold">系列</h1>
+      <title>合集</title>
+      <h1 className="mb-6 text-2xl font-semibold">合集</h1>
       <div className="grid gap-3 sm:grid-cols-2">
         {series.data.map((s) => (
           <Link

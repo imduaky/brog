@@ -26,8 +26,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { api, enc, formatDateTime } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { DiffView } from '@/components/diff-view'
+import type { PageRef } from '@shared/types'
 import { useAdminMutation } from './hooks'
 import { NewChapterDialog } from './new-chapter-dialog'
+import { NewPageDialog } from './new-page-dialog'
 
 const STATUS_LABEL: Record<string, string> = { M: '修改', A: '新增', D: '删除', '?': '新文件', U: '冲突' }
 
@@ -38,16 +40,21 @@ export function useWorkspaceStatus() {
 export default function DashboardPage() {
   const status = useWorkspaceStatus()
   const tree = useQuery({ queryKey: ['admin', 'tree'], queryFn: () => api<WorkspaceSeries[]>('/api/admin/tree') })
+  const pages = useQuery({ queryKey: ['admin', 'pages'], queryFn: () => api<(PageRef & { dirty: boolean })[]>('/api/admin/pages') })
 
-  if (status.isPending || tree.isPending) return <Loading />
+  if (status.isPending || tree.isPending || pages.isPending) return <Loading />
   if (status.isError) return <ErrorState error={status.error} />
   if (tree.isError) return <ErrorState error={tree.error} />
+  if (pages.isError) return <ErrorState error={pages.error} />
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="relative h-full overflow-y-auto">
       <div className="mx-auto grid max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         {status.data.warning && <WarningBanner message={status.data.warning} />}
-        <ArticleTree series={tree.data} />
+        <div className="grid content-start gap-6">
+          <ArticleTree series={tree.data} />
+          <PagesCard pages={pages.data} />
+        </div>
         <div className="grid content-start gap-6">
           <ChangesCard status={status.data} />
           <PublishCard status={status.data} />
@@ -138,6 +145,64 @@ function ArticleTree({ series }: { series: WorkspaceSeries[] }) {
             </ul>
           </div>
         ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Custom pages in the workspace (_pages/): they show in the navigation once published. */
+function PagesCard({ pages }: { pages: (PageRef & { dirty: boolean })[] }) {
+  const remove = useAdminMutation(
+    (slug: string) => api(`/api/admin/file?path=${enc(`_pages/${slug}`)}`, { method: 'DELETE' }),
+    '已从工作区删除，提交后生效',
+  )
+  return (
+    <Card className="content-start gap-4">
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>页面</CardTitle>
+          <CardDescription>导航中的自定义页面。发布后读者才能看到。</CardDescription>
+        </div>
+        <NewPageDialog>
+          <Button size="sm">
+            <Plus /> 新建
+          </Button>
+        </NewPageDialog>
+      </CardHeader>
+      <CardContent>
+        {pages.length === 0 && <p className="text-sm text-muted-foreground">还没有页面</p>}
+        <ul>
+          {pages.map((p) => (
+            <li key={p.slug} className="group flex items-center rounded-md hover:bg-accent">
+              <Link to={`/admin/edit-page/${enc(p.slug)}`} className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm">
+                <span className="truncate">{p.title}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{p.kind === 'html' ? '网页' : 'Markdown'}</span>
+                <span className="truncate font-mono text-xs text-muted-foreground">/p/{p.slug}</span>
+                {p.dirty && <span className="size-1.5 shrink-0 rounded-full bg-warning" aria-label="有未提交的修改" />}
+              </Link>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100" aria-label="更多">
+                    <MoreHorizontal />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem asChild>
+                    <Link to={`/p/${enc(p.slug)}`}>查看已发布版本</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={() => {
+                      if (confirm(`从工作区删除页面「${p.title}」？提交后生效，可以通过历史恢复。`)) remove.mutate(p.slug)
+                    }}
+                  >
+                    <Trash2 /> 删除
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </li>
+          ))}
+        </ul>
       </CardContent>
     </Card>
   )

@@ -4,11 +4,13 @@ import { secureHeaders } from 'hono/secure-headers'
 import { ZodError, z } from 'zod'
 import type { AppContext, Env } from './context.ts'
 import { RepoError } from './git/repo.ts'
+import { GitHubError } from './comments/github.ts'
 import { GitError } from './git/exec.ts'
 import { adminRoutes } from './routes/admin.ts'
 import { authRoutes } from './routes/auth.ts'
 import { gitRoutes } from './routes/git.ts'
 import { publicRoutes } from './routes/public.ts'
+import { shareRoutes } from './routes/share.ts'
 import { webRoutes } from './routes/web.ts'
 
 /**
@@ -31,17 +33,14 @@ export function createApp(ctx: AppContext) {
     }),
   )
 
-  if (ctx.config.server.corsOrigins.length) {
-    app.use(
-      '/api/*',
-      cors({
-        origin: ctx.config.server.corsOrigins,
-        credentials: true,
-        allowHeaders: ['Content-Type', CSRF_HEADER],
-        allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      }),
-    )
-  }
+  // The allowed origins are read per request, so a saved setting applies immediately.
+  const corsMiddleware = cors({
+    origin: (origin) => (ctx.settings.get().corsOrigins.includes(origin) ? origin : null),
+    credentials: true,
+    allowHeaders: ['Content-Type', CSRF_HEADER],
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  })
+  app.use('/api/*', (c, next) => (ctx.settings.get().corsOrigins.length ? corsMiddleware(c, next) : next()))
 
   app.use('/api/*', async (c, next) => {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && c.req.header(CSRF_HEADER) !== '1') {
@@ -54,6 +53,7 @@ export function createApp(ctx: AppContext) {
   app.route('/api/admin', adminRoutes(ctx))
   app.route('/api', publicRoutes(ctx))
   app.route('/git', gitRoutes(ctx))
+  app.route('/sh', shareRoutes(ctx))
 
   app.get('/images/:hash', async (c) => {
     const img = await ctx.content.readImage(c.req.param('hash'))
@@ -66,10 +66,11 @@ export function createApp(ctx: AppContext) {
   })
 
   app.all('/api/*', (c) => c.json({ error: 'not found' }, 404))
-  if (ctx.config.server.serveWeb) app.route('/', webRoutes(ctx))
+  if (ctx.startup.serveWeb) app.route('/', webRoutes(ctx))
 
   app.onError((err, c) => {
     if (err instanceof RepoError) return c.json({ error: err.message }, err.status)
+    if (err instanceof GitHubError) return c.json({ error: err.message }, err.status)
     if (err instanceof ZodError) return c.json({ error: z.prettifyError(err) }, 400)
     if (err instanceof GitError) {
       console.error(err.message)

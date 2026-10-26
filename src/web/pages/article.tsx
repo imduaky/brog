@@ -1,25 +1,28 @@
 import { useQuery } from '@tanstack/react-query'
-import type { ArticleBundle, ArticleRef, SourceResponse } from '@shared/types'
+import type { ArticleBundle, ArticleRef } from '@shared/types'
 import { ChevronLeft, ChevronRight, FileText, GitCommitVertical, History, List } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { CommitTree } from '@/components/commit-tree'
+import { Comments } from '@/components/comments'
+import { ShareButton } from '@/components/share'
 import { MarkdownView } from '@/components/markdown-view'
 import { PanelHeader } from '@/components/panel-header'
+import { PinButton } from '@/components/pin-button'
 import { ReaderTools, type ToolItem } from '@/components/reader-tools'
 import { ResizeHandle } from '@/components/resize-handle'
 import { ErrorState, Loading } from '@/components/states'
-import { SourceView } from '@/components/source-view'
 import { Toc } from '@/components/toc'
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { useMedia } from '@/hooks/use-media'
+import { useSite } from '@/hooks/use-site'
 import { useTheme } from '@/hooks/use-theme'
 import { api, articlePath, assetUrl, enc, formatDate } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-type PanelId = 'toc' | 'source' | 'history'
+type PanelId = 'toc' | 'history'
 
 interface Prefs {
   open: Record<PanelId, boolean>
@@ -28,13 +31,12 @@ interface Prefs {
 }
 
 const DEFAULT_PREFS: Prefs = {
-  open: { toc: true, source: false, history: true },
-  widths: { toc: 240, source: 440, history: 280 },
+  open: { toc: true, history: true },
+  widths: { toc: 240, history: 280 },
   toolsMinimized: false,
 }
 const WIDTH_LIMITS: Record<PanelId, [number, number]> = {
   toc: [160, 420],
-  source: [280, 900],
   history: [200, 460],
 }
 const PREFS_KEY = 'brog-reader-panels'
@@ -48,9 +50,10 @@ function loadPrefs(): Prefs {
     const raw = localStorage.getItem(PREFS_KEY)
     if (raw) {
       const p = JSON.parse(raw) as Partial<Prefs>
+      // Only known panels are kept (the source panel became its own page).
       return {
-        open: { ...DEFAULT_PREFS.open, ...p.open },
-        widths: { ...DEFAULT_PREFS.widths, ...p.widths },
+        open: { toc: p.open?.toc ?? DEFAULT_PREFS.open.toc, history: p.open?.history ?? DEFAULT_PREFS.open.history },
+        widths: { toc: p.widths?.toc ?? DEFAULT_PREFS.widths.toc, history: p.widths?.history ?? DEFAULT_PREFS.widths.history },
         toolsMinimized: p.toolsMinimized ?? DEFAULT_PREFS.toolsMinimized,
       }
     }
@@ -70,6 +73,7 @@ export default function ArticlePage() {
   const [dragging, setDragging] = useState<PanelId | null>(null)
   // The preview color of the article tints its header on the reader too. Hooks stay above the early returns.
   const { resolved } = useTheme()
+  const site = useSite()
 
   useEffect(() => {
     try {
@@ -83,20 +87,13 @@ export default function ArticlePage() {
     placeholderData: (prev) => prev,
   })
 
-  const sourceVisible = (wide && prefs.open.source) || sheet === 'source'
-  const source = useQuery({
-    queryKey: ['source', series, chapter, rev],
-    queryFn: () => api<SourceResponse>(`/api/articles/${enc(series)}/${chapter}/source${rev ? `?rev=${enc(rev)}` : ''}`),
-    enabled: sourceVisible,
-    staleTime: 60_000,
-  })
-
   if (article.isPending) return <Loading />
   if (article.isError) return <ErrorState error={article.error} />
   const a = article.data
   const base = articlePath(series, Number(chapter))
   const isOld = !!rev && a.rev !== a.history[0]?.oid
   const chapterDir = `${series}/${chapter}`
+  const sourceHref = `${base}/source${rev ? `?rev=${enc(rev)}` : ''}`
 
   const tint = a.meta.preview?.theme?.[resolved]
   const isOpen = (id: PanelId) => (wide ? prefs.open[id] : sheet === id)
@@ -109,7 +106,7 @@ export default function ArticlePage() {
 
   const tools: ToolItem[] = [
     { key: 'toc', label: '目录', icon: <List />, active: isOpen('toc'), onClick: () => toggle('toc') },
-    { key: 'source', label: '原文', icon: <FileText />, active: isOpen('source'), onClick: () => toggle('source') },
+    { key: 'source', label: '原文', icon: <FileText />, to: sourceHref },
     { key: 'history', label: '历史', icon: <History />, active: isOpen('history'), onClick: () => toggle('history') },
   ]
 
@@ -121,11 +118,6 @@ export default function ArticlePage() {
   }
 
   const tocBody = <Toc items={a.content.toc} />
-  const sourceBody = source.isError ? (
-    <p className="py-6 text-center text-sm text-destructive">{String(source.error)}</p>
-  ) : (
-    <SourceView text={source.data?.text} loading={source.isPending} />
-  )
   const historyBody = <CommitTree commits={a.history} current={a.rev} hrefFor={hrefFor} compareHref={compareHref} />
 
   // Wide layout: each panel is a sticky slot whose width animates. The slot keeps the
@@ -144,7 +136,7 @@ export default function ArticlePage() {
     const inner = (
       <div className="flex min-h-0 min-w-0 flex-col" style={{ width }}>
         <PanelHeader title={title} side={side} onHide={() => hide(id)} />
-        <div className="min-h-0 overflow-y-auto pr-1">{body}</div>
+        <div className="relative min-h-0 overflow-y-auto pr-1 [scrollbar-width:thin]">{body}</div>
       </div>
     )
     return (
@@ -210,10 +202,19 @@ export default function ArticlePage() {
                   </Link>
                 </Badge>
               ))}
+              <span className="ml-auto flex items-center gap-1">
+                <Link to={sourceHref} className="clickable inline-flex items-center gap-1 px-2 py-0.5">
+                  <FileText className="size-3.5" />
+                  原文
+                </Link>
+                <PinButton kind="article" pinKey={chapterDir} className="h-7 px-2 text-muted-foreground" />
+                <ShareButton series={series} chapter={Number(chapter)} className="h-7 px-2 text-muted-foreground" />
+              </span>
             </div>
           </header>
           {a.meta.coverUrl && <img src={assetUrl(a.meta.coverUrl)} alt="" className="mb-8 max-h-96 w-full object-cover" />}
           <MarkdownView html={a.content.html} />
+          {site.data?.comments.enabled && <Comments series={series} chapter={Number(chapter)} />}
           <nav className={cn('mt-16 grid gap-3 border-t pt-6 sm:grid-cols-2')}>
             {a.prev ? <PrevNext article={a.prev} dir="prev" /> : <span />}
             {a.next && <PrevNext article={a.next} dir="next" />}
@@ -221,7 +222,6 @@ export default function ArticlePage() {
         </div>
       </article>
 
-      {wide && slot('source', 'right', '原文', sourceBody)}
       {wide && slot('history', 'right', '历史', historyBody)}
 
       {!wide && (
@@ -232,14 +232,6 @@ export default function ArticlePage() {
                 <SheetTitle>目录</SheetTitle>
               </SheetHeader>
               {tocBody}
-            </SheetContent>
-          </Sheet>
-          <Sheet open={sheet === 'source'} onOpenChange={(o) => !o && setSheet(null)}>
-            <SheetContent side="right" className="w-[92vw] max-w-2xl overflow-y-auto p-4">
-              <SheetHeader className="p-0">
-                <SheetTitle>原文</SheetTitle>
-              </SheetHeader>
-              {sourceBody}
             </SheetContent>
           </Sheet>
           <Sheet open={sheet === 'history'} onOpenChange={(o) => !o && setSheet(null)}>

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { ArticleCard } from '@/components/article-card'
+import { PinButton } from '@/components/pin-button'
 import { ErrorState, Loading } from '@/components/states'
 import { Button } from '@/components/ui/button'
 import { useSession } from '@/hooks/use-session'
@@ -77,7 +78,8 @@ export default function TagsPage() {
               <X /> 清除选择
             </Button>
           )}
-          {admin && <span className="ml-auto text-xs text-muted-foreground">双击标签可修改名称</span>}
+          {chosen.length === 1 && <PinButton kind="tag" pinKey={chosen[0]!.key} />}
+          {admin && <span className="ml-auto text-xs text-muted-foreground">双击标签可修改名称，选中一个标签可置顶</span>}
         </div>
 
         <div className="flex flex-wrap gap-2" role="group" aria-label="标签">

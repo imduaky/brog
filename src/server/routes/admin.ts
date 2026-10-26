@@ -1,12 +1,16 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { META_FILE } from '../../shared/paths.ts'
+import { isPageSlug, META_FILE, PAGES_DIR } from '../../shared/paths.ts'
 import type { WorkspaceStatus } from '../../shared/types.ts'
 import { parseChapterMeta, parseSeriesMeta, stringifyMeta } from '../content/meta.ts'
-import { SiteSettingsInput, writeSiteSettings } from '../content/site-settings.ts'
+import { PinsInput, writePins } from '../content/pins.ts'
+import { readSiteSettings, SiteSettingsInput, writeSiteSettings } from '../content/site-settings.ts'
+import { CommentSettingsInput } from '../comments/settings.ts'
+import { shareUrl } from '../share/links.ts'
 import { ensureTags } from '../content/tags.ts'
 import { HEX_RE } from '../../shared/color.ts'
 import { imageMime } from '../content/service.ts'
+import { ServerSettingsSchema } from '../server-settings.ts'
 import { type AppContext, ChapterParams, type Env, parseJson } from '../context.ts'
 import { getSetting, setSetting } from '../db.ts'
 import { RepoError } from '../git/repo.ts'
@@ -153,12 +157,10 @@ export function adminRoutes(ctx: AppContext) {
     return c.json({ ok: true })
   })
 
+  /** `dir` is a chapter folder ("<series>/<n>") or a page folder ("_pages/<slug>"). */
   app.post('/preview', async (c) => {
-    const body = await parseJson(
-      c,
-      z.object({ series: z.string(), chapter: z.number().int().min(1), content: z.string().max(MAX_TEXT_FILE) }),
-    )
-    const r = await content.preview(body.series, body.chapter, body.content)
+    const body = await parseJson(c, z.object({ dir: z.string(), content: z.string().max(MAX_TEXT_FILE) }))
+    const r = await content.preview(body.dir, body.content)
     return c.json({ html: r.html, toc: r.toc })
   })
 
@@ -167,15 +169,49 @@ export function adminRoutes(ctx: AppContext) {
     const file = form.get('file')
     if (!(file instanceof File)) throw new RepoError('file is required')
     if (file.size > MAX_IMAGE) throw new RepoError('image too large (max 20 MB)')
-    const p = ChapterParams.parse({ series: form.get('series'), chapter: form.get('chapter') })
+    // `dir` (chapter or page folder), or `series` + `chapter` as before pages existed.
+    const dir = form.get('dir')
+      ? String(form.get('dir'))
+      : (({ series, chapter }) => `${series}/${chapter}`)(ChapterParams.parse({ series: form.get('series'), chapter: form.get('chapter') }))
     const result = await content.uploadImage({
-      ...p,
+      dir,
       data: Buffer.from(await file.arrayBuffer()),
       // multipart turns \n into \r\n; the editor's offset is based on \n
       markdown: String(form.get('markdown') ?? '').replace(/\r\n/g, '\n'),
       offset: Number(form.get('offset') ?? 0),
     })
     return c.json(result)
+  })
+
+  // ------------------------------------------------------------ custom pages
+
+  app.get('/pages', async (c) => c.json(await locked(() => content.workspacePages())))
+
+  app.post('/pages', async (c) => {
+    const body = await parseJson(
+      c,
+      z.object({
+        slug: z.string().refine(isPageSlug, 'invalid page name'),
+        title: z.string().trim().min(1).max(80),
+        kind: z.enum(['markdown', 'html']),
+      }),
+    )
+    return c.json(await content.createPage(body))
+  })
+
+  app.get('/page-meta/:slug', async (c) => {
+    const slug = c.req.param('slug')
+    if (!isPageSlug(slug)) throw new RepoError('invalid page name')
+    const text = (await repo.readWorking(`${PAGES_DIR}/${slug}/${META_FILE}`))?.toString('utf8') ?? null
+    return c.json({ title: parseSeriesMeta(text, slug).title })
+  })
+
+  app.put('/page-meta/:slug', async (c) => {
+    const slug = c.req.param('slug')
+    if (!isPageSlug(slug)) throw new RepoError('invalid page name')
+    const { title } = await parseJson(c, z.object({ title: z.string().trim().min(1).max(80) }))
+    await locked(() => repo.writeWorking(`${PAGES_DIR}/${slug}/${META_FILE}`, stringifyMeta({ title, description: '' })))
+    return c.json({ ok: true })
   })
 
   // ------------------------------------------------------------ git workflow
@@ -220,6 +256,9 @@ export function adminRoutes(ctx: AppContext) {
 
   app.get('/commits/:oid', async (c) => c.json(await repo.show(c.req.param('oid'))))
 
+  /** Commit messages over the whole history, unpublished commits included. */
+  app.get('/search/commits', async (c) => c.json(await content.searchCommits('HEAD', c.req.query('q') ?? '')))
+
   app.post('/reset', async (c) => {
     const body = await parseJson(
       c,
@@ -258,12 +297,74 @@ export function adminRoutes(ctx: AppContext) {
     return c.json(await content.renameTag(c.req.param('key'), name))
   })
 
+  // ------------------------------------------------------------ comments
+
+  app.get('/comments/settings', (c) => c.json(ctx.comments.settings()))
+
+  app.put('/comments/settings', async (c) => {
+    const body = await parseJson(c, CommentSettingsInput)
+    return c.json(await ctx.comments.saveSettings(body))
+  })
+
+  /** Repository and discussion categories, read from GitHub for the admin to choose from. */
+  app.get('/comments/categories', async (c) => c.json(await ctx.comments.categories(c.req.query('repo') ?? '')))
+
+  /** Read-only check of the token, repository, category and connection. Creates nothing on GitHub. */
+  app.post('/comments/test', async (c) => c.json({ steps: await ctx.comments.test() }))
+
+  app.delete('/comments/:id', async (c) => {
+    await ctx.comments.remove(c.req.param('id'))
+    return c.json({ ok: true })
+  })
+
+  // ------------------------------------------------------------ share links
+
+  app.get('/articles/:series/:chapter/shares', (c) => {
+    const p = ChapterParams.parse(c.req.param())
+    return c.json(ctx.shares.view(ctx.settings.get(), new URL(c.req.url).origin, p.series, p.chapter))
+  })
+
+  app.post('/articles/:series/:chapter/shares', (c) => {
+    const p = ChapterParams.parse(c.req.param())
+    const link = ctx.shares.create(p.series, p.chapter)
+    const url = shareUrl(ctx.settings.get(), new URL(c.req.url).origin, link.id)
+    return c.json({ ...link, url }, 201)
+  })
+
+  app.delete('/shares/:id', (c) => {
+    if (!ctx.shares.revoke(c.req.param('id'))) return c.json({ error: '分享链接不存在' }, 404)
+    return c.json({ ok: true })
+  })
+
   // ------------------------------------------------------------ site settings
 
+  /** Saves the given sections; fields left out keep their current value. */
   app.put('/site-settings', async (c) => {
     const body = await parseJson(c, SiteSettingsInput)
-    writeSiteSettings(ctx.db, body)
-    return c.json(body)
+    const next = { ...readSiteSettings(ctx.db), ...body }
+    writeSiteSettings(ctx.db, next)
+    return c.json(next)
+  })
+
+  // ------------------------------------------------------------ server settings
+
+  app.get('/server-settings', (c) => c.json(ctx.settings.get()))
+
+  app.put('/server-settings', async (c) => {
+    const body = await parseJson(c, ServerSettingsSchema)
+    ctx.settings.set(body)
+    return c.json(ctx.settings.get())
+  })
+
+  // ------------------------------------------------------------ pins
+
+  app.get('/pins', (c) => c.json(content.adminPins()))
+
+  /** Replaces the pinned list; its order is the display order. */
+  app.put('/pins', async (c) => {
+    const { pins } = await parseJson(c, PinsInput)
+    writePins(ctx.db, pins)
+    return c.json(content.adminPins())
   })
 
   // ------------------------------------------------------------ git tokens
