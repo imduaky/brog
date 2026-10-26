@@ -2,7 +2,6 @@ import { randomInt } from 'node:crypto'
 import type { ServerSettings, ShareLink } from '../../shared/types.ts'
 import type { ContentService } from '../content/service.ts'
 import type { DB } from '../db.ts'
-import { AttemptLimiter } from '../auth/tokens.ts'
 import { RepoError } from '../git/repo.ts'
 
 /** Four letters or digits: 62^4 = 14,776,336 links in all. Ids are case-sensitive. */
@@ -25,9 +24,6 @@ export function shareUrl(settings: ServerSettings, requestOrigin: string, id: st
  * The service runs synchronously against SQLite, so the get-or-create below cannot interleave.
  */
 export class ShareService {
-  /** Readers may remove a visitor link. Every attempt counts, per IP, so one reader cannot keep removing it. */
-  readonly visitorRemoveLimiter = new AttemptLimiter(10, 10 * 60 * 1000)
-
   constructor(
     private readonly db: DB,
     private readonly content: ContentService,
@@ -77,11 +73,6 @@ export class ShareService {
       return { id, createdAt, visitor }
     }
     throw new RepoError('暂时无法生成新的分享链接编号，请稍后再试', 500)
-  }
-
-  /** Removes the article's visitor link for everyone. Admin links are not touched. */
-  revokeVisitor(series: string, chapter: number): boolean {
-    return this.db.prepare('DELETE FROM share_links WHERE series = ? AND chapter = ? AND visitor = 1').run(series, chapter).changes > 0
   }
 
   revoke(id: string): boolean {

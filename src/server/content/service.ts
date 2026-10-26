@@ -96,7 +96,7 @@ function toRefs(names: string[], refs: Map<string, TagRef>): TagRef[] {
 
 /** Tags as stored in the published index: {key, name} pairs, frozen at publish time. */
 function storedRefs(json: string): TagRef[] {
-  return (JSON.parse(json) as (TagRef | string)[]).map((t) => (typeof t === 'string' ? { key: t, name: t } : t))
+  return JSON.parse(json) as TagRef[]
 }
 
 const summaryParser = new MarkdownIt()

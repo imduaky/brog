@@ -1,6 +1,6 @@
 {
   "name": "brog",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "A git-backed blog: mkdocs-material style markdown, commit/push publishing, built-in git server.",
   "license": "MIT",

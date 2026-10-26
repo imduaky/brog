@@ -169,12 +169,8 @@ export function adminRoutes(ctx: AppContext) {
     const file = form.get('file')
     if (!(file instanceof File)) throw new RepoError('file is required')
     if (file.size > MAX_IMAGE) throw new RepoError('image too large (max 20 MB)')
-    // `dir` (chapter or page folder), or `series` + `chapter` as before pages existed.
-    const dir = form.get('dir')
-      ? String(form.get('dir'))
-      : (({ series, chapter }) => `${series}/${chapter}`)(ChapterParams.parse({ series: form.get('series'), chapter: form.get('chapter') }))
     const result = await content.uploadImage({
-      dir,
+      dir: String(form.get('dir') ?? ''),
       data: Buffer.from(await file.arrayBuffer()),
       // multipart turns \n into \r\n; the editor's offset is based on \n
       markdown: String(form.get('markdown') ?? '').replace(/\r\n/g, '\n'),

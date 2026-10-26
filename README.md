@@ -26,6 +26,15 @@ docker logs brog   # 首次启动会打印管理密码
 
 打开 http://localhost:8080 。在任意页面（输入框之外）连续按 `w` 三次，输入管理密码进入后台。
 
+### Docker Compose（带 nginx 与 gzip）
+
+```bash
+docker compose up -d --build   # 打开 http://localhost:8080
+docker compose logs brog       # 首次启动会打印管理密码
+```
+
+nginx 配置在 `deploy/nginx/brog.conf`。经过 nginx 时，请在后台「设置 → 服务」中开启「反向代理之后」，否则所有访客共用同一个限流计数。
+
 ### 从源码运行
 
 需要 Node.js 24、pnpm 11 和系统的 `git`。

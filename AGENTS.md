@@ -131,6 +131,8 @@ src/
                    Token、设置（站点、导航、友链、置顶、外观、服务、密码；宽屏两列）
 tests/             vitest：工作流、搜索与对比、标签、外观与预览、示例内容、设置与自定义页面、sha256、Markdown
 Dockerfile         多阶段镜像：编译、生产依赖、运行（非 root 用户，数据目录为卷）
+docker-compose.yml brog + nginx（gzip）；nginx 是唯一对外端口，brog 不发布端口
+deploy/nginx/brog.conf  nginx 反向代理配置：gzip、Vary、/git/ 不压缩不缓冲、请求体上限 25 MB
 .dockerignore      镜像构建忽略的文件
 .github/workflows/docker.yml   推送 main 与 v* 标签时构建 linux/amd64、linux/arm64 镜像并推送到 GHCR
 scripts/dev.mjs    开发入口：Vite（同进程）与 API 子进程，源码变化时重启 API（见 9.1）
@@ -286,7 +288,7 @@ _pages/                       自定义页面（以 _ 开头的目录保留给�
 | 登录有效期 | 7 天 | 1–365 天，访问时续期 |
 | Secure Cookie | 自动 | 自动：对外地址为 https 时开启；也可强制开启或关闭 |
 | SameSite | Lax | Strict / Lax / None。None 必须同时开启 Secure，否则保存返回 400 |
-| 反向代理之后 | 关 | 开启后按 `X-Forwarded-For` 识别访客 IP（登录与 git 认证的限流用） |
+| 反向代理之后 | 关 | 开启后按 `X-Forwarded-For` 识别访客 IP（登录与 git 认证的限流用）。经过 nginx（`deploy/nginx/brog.conf`）时必须开启，否则所有访客共用 nginx 的地址和同一个限流计数 |
 | 独立部署的前端地址 | 空 | CORS 允许的来源，每行一个，只写协议和域名，最多 20 个 |
 | 搜索文章正文 | 开 | 关闭后只搜索标题、标签和摘要；切换后自动重建索引 |
 | 分享链接域名 | 空 | 文章分享链接使用的域名（短域名），例如 `https://s.example.com`，只写协议和域名。空时使用主站域名（对外地址，或访问时的地址） |
@@ -401,7 +403,7 @@ _pages/                       自定义页面（以 _ 开头的目录保留给�
 - 访问 `/sh/<id>` 返回 302，`Location` 为 `/s/<合集>/<n>`（相对地址，读者留在打开链接时的域名上）。响应带 `Cache-Control: no-cache`。
 - 链接只指向文章的当前发布版本：文章未发布或已从发布版本中移除时，链接返回 404。未发布的文章不能创建链接（409）。
 - 停用后链接返回 404，且不能恢复。
-- 读者可以删除游客链接（`DELETE /api/articles/:series/:chapter/share`）。它只删除这篇文章的游客链接，管理员链接不受影响。删除对所有人生效，下一次游客请求会生成新的链接。读者的删除按 IP 限流：每 10 分钟最多 10 次尝试。
+- 读者只能创建（获取）游客链接，不能删除。删除只能由管理员完成，管理员可以删除任何链接，包括游客链接。删除游客链接后，下一次游客请求会生成新的链接。
 - 管理员可以删除任何链接（`DELETE /api/admin/shares/:id`），包括游客链接。
 - 编号生成使用加密安全的随机数，与已有编号重复时重试（最多 50 次）。编号不是访问控制：链接只能指向已发布的内容，因此即使被枚举，也只暴露公开文章。
 
@@ -434,12 +436,12 @@ _pages/                       自定义页面（以 _ 开头的目录保留给�
 - 页面：`GET|POST /api/admin/pages`（新建 `_pages/<名称>/`，重名 409）、`GET|PUT /api/admin/page-meta/:slug`。
 - 历史：`GET /api/admin/search/commits?q=`（提交说明搜索，覆盖全部提交）。
 - 工作区：`GET /api/admin/status`、`tree`、`files`、`file`（GET/PUT/DELETE）、`file-at`、`workspace/raw`。
-- 文章：`POST /api/admin/chapters`、`GET|PUT /api/admin/meta/:series/:chapter`、`GET|PUT /api/admin/series-meta/:series`、`POST /api/admin/preview`（body 为 `{ dir, content }`，`dir` 为 `<合集>/<n>` 或 `_pages/<名称>`）、`POST /api/admin/images`（表单字段 `dir`，或 `series` + `chapter`）。
+- 文章：`POST /api/admin/chapters`、`GET|PUT /api/admin/meta/:series/:chapter`、`GET|PUT /api/admin/series-meta/:series`、`POST /api/admin/preview`（body 为 `{ dir, content }`，`dir` 为 `<合集>/<n>` 或 `_pages/<名称>`）、`POST /api/admin/images`（表单字段 `dir`，即 `<合集>/<n>` 或 `_pages/<名称>`）。
 - 标签：`GET /api/admin/tags`（含未使用的标签）、`POST /api/admin/tags`（新增，重名 409）、`PUT /api/admin/tags/:key`（改名，重名 409，同时改写工作区中的 `meta.yaml`）。
 - Git：`stage`、`unstage`、`discard`、`diff`、`commit`、`log`、`commits/:oid`、`reset`、`revert`、`publish`、`status/dismiss-warning`。
 - Token：`GET|POST /api/admin/tokens`、`DELETE /api/admin/tokens/:id`。
 - 分享链接：`GET|POST /api/admin/articles/:series/:chapter/shares`（列表与创建，创建仅限已发布文章，返回 201）、`DELETE /api/admin/shares/:id`（停用）。
-- 游客链接（公开）：`GET /api/articles/:series/:chapter/share` 返回 `{ link }`，没有时为 `null`；`POST` 查找或创建并返回链接；`DELETE` 删除游客链接（没有时 404，按 IP 限流返回 429）。未发布返回 409。
+- 游客链接（公开）：`GET /api/articles/:series/:chapter/share` 返回 `{ link }`，没有时为 `null`；`POST` 查找或创建并返回链接。未发布返回 409。没有删除接口，删除只能通过管理员 API。
 - 评论：`GET|PUT /api/admin/comments/settings`（保存时在 GitHub 上核对仓库与分类）、`GET /api/admin/comments/categories?repo=`、`POST /api/admin/comments/test`（只读检查）、`DELETE /api/admin/comments/:id`（从 GitHub 删除）。
 
 错误格式统一为 `{ "error": "..." }`。
@@ -518,6 +520,7 @@ pnpm typecheck
 
 - 镜像由 `Dockerfile` 构建，四个阶段：编译依赖（`deps`）、编译前后端（`build`）、生产依赖（`prod-deps`）、运行（`runtime`）。运行阶段只有生产依赖、`dist/` 和 `git`，以非 root 用户（`node`）运行，`/app/data` 是卷。
 - 本地构建与运行：`docker build -t brog:local .`，`docker run -d -p 8080:8080 -v brog-data:/app/data brog:local`，然后 `docker logs` 查看管理密码。
+- 带 nginx 的组合：`docker compose up -d --build`（`docker-compose.yml`）。nginx 发布 8080 端口并做 gzip，brog 只在内部网络可达。`BROG_GITHUB_TOKEN` 从环境或 `.env` 读取。
 - 自定义启动参数：通过环境变量，例如 `docker run -e BROG_PORT=9000 ...`。评论需要 `-e BROG_GITHUB_TOKEN=...`。其余设置在后台「设置」中修改。
 - 健康检查：`/api/site` 返回 200 即健康。
 - 发布：`.github/workflows/docker.yml` 在推送 `main` 时发布 `main` 标签；推送 `v*` 标签（如 `v0.1.0`）时发布 `0.1.0`、`0.1`，以及 `latest`。镜像推送到 `ghcr.io/imduaky/brog`，平台为 linux/amd64 与 linux/arm64。
@@ -527,7 +530,7 @@ pnpm typecheck
 
 ### 9.5 缓存（CDN）
 
-应用本身不压缩响应；压缩（gzip / br）由 CDN 或反向代理负责。应用只决定哪些响应可以被共享缓存保存。策略集中在 `src/server/routes/public.ts` 的 `CACHE`：
+应用本身不压缩响应。压缩由反向代理负责：仓库提供 `deploy/nginx/brog.conf`，开启 gzip、加 `Vary: Accept-Encoding`，`/git/` 不压缩。CDN 也可以压缩，二者不要同时开启。应用只决定哪些响应可以被共享缓存保存。策略集中在 `src/server/routes/public.ts` 的 `CACHE`：
 
 | 策略 | `Cache-Control` | 用于 |
 | --- | --- | --- |
@@ -554,7 +557,7 @@ pnpm typecheck
 - `tests/seed.test.ts`：示例内容与 `README.md` 完全一致；全新安装即发布示例；示例正文以项目 README 开头，之后渲染 Markdown 的每一项功能，且不会出现可执行的脚本。
 - `tests/comments.test.ts`：评论默认关闭（读者看不到、发表 403、令牌不出现在响应中）、开启需要令牌、保存时核对仓库与分类、换仓库清空讨论映射、测试面板的各步骤（含令牌失效时跳过后续步骤、只读）、首条评论创建讨论并复用、访客与 GitHub 登录名的区分、输入校验、发表限流（5 次 / 10 分钟）、列表缓存与失效、管理员删除。使用内存中的 fake GitHub，不访问真实 GitHub。
 - `tests/cache.test.ts`：各类公开响应的缓存策略（列表与最新版本为 `live`、固定版本与图片为 `immutable`、评论与游客链接为 `no-cache`、管理员对比为 `private`、错误不缓存）、公开响应不写 `Set-Cookie`（即使管理员已登录）。
-- `tests/share.test.ts`：读者删除游客链接（不需要登录、只删游客链接、需要 CSRF 头、没有时 404、按 IP 限流）；游客链接（每篇一个、并发首次请求只生成一个、管理员链接与游客链接并存且游客链接排在前、未发布返回 409、POST 需要 CSRF 头、停用后重新生成）、编号格式与唯一性、分享域名的优先级（分享域名 > 对外地址 > 请求域名）、分享域名不能带路径、302 跳转与 `no-cache`、未发布文章不能创建链接、文章移除后链接失效、停用、未知与畸形编号、仅管理员可操作。
+- `tests/share.test.ts`：读者不能删除链接（游客链接与管理员链接都是 404，链接仍可访问）、管理员删除游客链接后读者得到新链接；游客链接（每篇一个、并发首次请求只生成一个、管理员链接与游客链接并存且游客链接排在前、未发布返回 409、POST 需要 CSRF 头、停用后重新生成）、编号格式与唯一性、分享域名的优先级（分享域名 > 对外地址 > 请求域名）、分享域名不能带路径、302 跳转与 `no-cache`、未发布文章不能创建链接、文章移除后链接失效、停用、未知与畸形编号、仅管理员可操作。
 - `tests/sha256.test.ts`：纯 JS 的 SHA-256 与 Node 的 crypto 结果一致（边界长度、UTF-8、随机输入）。
 - `tests/markdown.test.ts`：提示框 / 标签页 / TOC / 图片路径 / 安全过滤 / 沙箱 demo / 图片命名上下文 / `data-line` / 展开结构（动画框与内层分离）。
 

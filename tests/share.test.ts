@@ -209,44 +209,37 @@ describe('visitor share link', () => {
   })
 })
 
-describe('readers remove the visitor link', () => {
+describe('readers create the visitor link but cannot remove it', () => {
   const visitorUrl = (chapter: number) => `${t!.url}/api/articles/alpha/${chapter}/share`
-  const readerPost = (url: string, method: string) => fetch(url, { method, headers: { 'x-brog-request': '1' } })
+  const readerRequest = (url: string, method: string) => fetch(url, { method, headers: { 'x-brog-request': '1' } })
 
-  it('a reader can remove the visitor link; the next request gets a new one', async () => {
+  it('a reader cannot remove the visitor link, and it keeps working', async () => {
     t = await startServer()
     await t.login()
     const chapter = await publishedArticle(t)
-    const old = await json<ShareLink>(readerPost(visitorUrl(chapter), 'POST'))
-    expect((await readerPost(visitorUrl(chapter), 'DELETE')).status).toBe(200)
-    expect(await json<{ link: ShareLink | null }>(fetch(visitorUrl(chapter)))).toEqual({ link: null })
-    expect((await visit(old.url)).status).toBe(404)
-    const fresh = await json<ShareLink>(readerPost(visitorUrl(chapter), 'POST'))
-    expect(fresh.id).not.toBe(old.id)
+    const link = await json<ShareLink>(readerRequest(visitorUrl(chapter), 'POST'))
+    expect((await readerRequest(visitorUrl(chapter), 'DELETE')).status).toBe(404)
+    expect((await visit(link.url)).status).toBe(302)
+    expect(await json<{ link: ShareLink }>(fetch(visitorUrl(chapter)))).toEqual({ link: link })
   })
 
-  it('a reader cannot remove an admin link', async () => {
+  it('a reader cannot remove an admin link either', async () => {
     t = await startServer()
     await t.login()
     const chapter = await publishedArticle(t)
     const admin = await json<ShareLink>(t.api(`/api/admin/articles/alpha/${chapter}/shares`, { method: 'POST' }))
-    expect((await readerPost(visitorUrl(chapter), 'DELETE')).status).toBe(404)
+    expect((await readerRequest(visitorUrl(chapter), 'DELETE')).status).toBe(404)
     expect((await visit(admin.url)).status).toBe(302)
   })
 
-  it('removing without the CSRF header is refused, and removing when there is nothing to remove is 404', async () => {
+  it('the admin can remove the visitor link, and the next reader request makes a new one', async () => {
     t = await startServer()
     await t.login()
     const chapter = await publishedArticle(t)
-    expect((await fetch(visitorUrl(chapter), { method: 'DELETE' })).status).toBe(403)
-    expect((await readerPost(visitorUrl(chapter), 'DELETE')).status).toBe(404)
-  })
-
-  it('repeated removals by one IP are limited', async () => {
-    t = await startServer()
-    await t.login()
-    const chapter = await publishedArticle(t)
-    for (let i = 0; i < 10; i++) await readerPost(visitorUrl(chapter), 'DELETE')
-    expect((await readerPost(visitorUrl(chapter), 'DELETE')).status).toBe(429)
+    const old = await json<ShareLink>(readerRequest(visitorUrl(chapter), 'POST'))
+    expect((await t.api(`/api/admin/shares/${old.id}`, { method: 'DELETE' })).status).toBe(200)
+    expect((await visit(old.url)).status).toBe(404)
+    const fresh = await json<ShareLink>(readerRequest(visitorUrl(chapter), 'POST'))
+    expect(fresh.id).not.toBe(old.id)
   })
 })

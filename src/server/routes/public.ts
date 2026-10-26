@@ -148,20 +148,6 @@ export function publicRoutes(ctx: AppContext) {
     return c.json({ link: link ? ctx.shares.withUrl(ctx.settings.get(), new URL(c.req.url).origin, link) : null })
   })
 
-  /**
-   * Removes the article's visitor link for everyone; the next reader gets a new one. Only the
-   * visitor link can be removed this way. Admin links need the admin API.
-   */
-  app.delete('/articles/:series/:chapter/share', (c) => {
-    const p = ChapterParams.parse(c.req.param())
-    const ip = clientIp(ctx, c)
-    if (ctx.shares.visitorRemoveLimiter.blocked(ip)) return c.json({ error: '操作太频繁，请 10 分钟后再试' }, 429)
-    ctx.shares.visitorRemoveLimiter.fail(ip)
-    if (!ctx.shares.revokeVisitor(p.series, p.chapter)) return c.json({ error: '分享链接不存在' }, 404)
-    cache(c, CACHE.fresh)
-    return c.json({ ok: true })
-  })
-
   app.post('/articles/:series/:chapter/share', (c) => {
     const p = ChapterParams.parse(c.req.param())
     const link = ctx.shares.visitorLink(p.series, p.chapter, true)!

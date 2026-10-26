@@ -92,7 +92,7 @@ export function readSiteSettings(db: DB): SiteSettings {
   if (!raw) return base
   try {
     const stored = JSON.parse(raw) as Partial<SiteSettings>
-    // Settings saved before a field existed keep its default; nested objects merge the same way.
+    // A field the stored value does not have takes its default; nested objects merge the same way.
     const merged = { ...base, ...stored, home: { ...base.home, ...stored.home } }
     const parsed = SiteSettingsSchema.safeParse(merged)
     return parsed.success ? parsed.data : base

@@ -48,14 +48,6 @@ function VisitorShareDialog({ series, chapter, open, onOpenChange }: { series: s
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : String(err)),
   })
-  const remove = useMutation({
-    mutationFn: () => api(base, { method: 'DELETE' }),
-    onSuccess: () => {
-      qc.setQueryData(key, { link: null })
-      toast.success('分享链接已删除，下次生成时会得到新的链接')
-    },
-    onError: (err) => toast.error(err instanceof Error ? err.message : String(err)),
-  })
   const link = current.data?.link
 
   return (
@@ -64,7 +56,7 @@ function VisitorShareDialog({ series, chapter, open, onOpenChange }: { series: s
         <DialogHeader>
           <DialogTitle>分享这篇文章</DialogTitle>
           <DialogDescription>
-            打开链接的人会看到这篇文章的当前发布版本。所有人拿到的是同一个链接；删除后，链接对所有人失效，下次生成时会得到新的链接。
+            打开链接的人会看到这篇文章的当前发布版本。所有人拿到的是同一个链接，直到管理员停用它为止。
           </DialogDescription>
         </DialogHeader>
         {current.isPending && <p className="py-4 text-center text-sm text-muted-foreground">加载中…</p>}
@@ -96,21 +88,7 @@ function VisitorShareDialog({ series, chapter, open, onOpenChange }: { series: s
             </Button>
           </div>
         )}
-        {link && (
-          <div className="flex justify-end">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              disabled={remove.isPending}
-              onClick={() => {
-                if (confirm('删除这个分享链接？删除后，所有人打开它都会看到 404。')) remove.mutate(undefined)
-              }}
-            >
-              <Trash2 /> 删除分享链接
-            </Button>
-          </div>
-        )}
+
       </DialogContent>
     </Dialog>
   )

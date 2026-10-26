@@ -1,0 +1,27 @@
+# brog with nginx in front (gzip). Start with: docker compose up -d --build
+# Open http://localhost:8080. The admin password is printed by `docker compose logs brog`.
+#
+# Set BROG_GITHUB_TOKEN in the environment (or a .env file next to this file) to enable comments.
+services:
+  brog:
+    build: .
+    image: ghcr.io/imduaky/brog:0.1.2
+    restart: unless-stopped
+    environment:
+      BROG_GITHUB_TOKEN: ${BROG_GITHUB_TOKEN:-}
+    volumes:
+      - brog-data:/app/data
+    # No published port: only nginx reaches brog.
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - brog
+    ports:
+      - "8080:80"
+    volumes:
+      - ./deploy/nginx/brog.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  brog-data:
