@@ -37,7 +37,7 @@ docker compose up -d --build   # 打开 http://localhost:8080
 docker compose logs brog       # 首次启动会打印管理密码
 \`\`\`
 
-nginx 配置在 \`deploy/nginx/brog.conf\`。经过 nginx 时，请在后台「设置 → 服务」中开启「反向代理之后」，否则所有访客共用同一个限流计数。
+nginx 配置在 \`deploy/nginx/conf.d/brog.conf\`（整个目录挂载到 \`/etc/nginx/conf.d\`）。经过 nginx 时，请在后台「设置 → 服务」中开启「反向代理之后」，否则所有访客共用同一个限流计数。
 
 ### 从源码运行
 

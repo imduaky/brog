@@ -132,7 +132,7 @@ src/
 tests/             vitest：工作流、搜索与对比、标签、外观与预览、示例内容、设置与自定义页面、sha256、Markdown
 Dockerfile         多阶段镜像：编译、生产依赖、运行（非 root 用户，数据目录为卷）
 docker-compose.yml brog + nginx（gzip）；nginx 是唯一对外端口，brog 不发布端口
-deploy/nginx/brog.conf  nginx 反向代理配置：gzip、Vary、/git/ 不压缩不缓冲、请求体上限 25 MB
+deploy/nginx/conf.d/brog.conf  nginx 反向代理配置：gzip、Vary、/git/ 不压缩不缓冲、请求体上限 25 MB
 .dockerignore      镜像构建忽略的文件
 .github/workflows/docker.yml   推送 main 与 v* 标签时构建 linux/amd64、linux/arm64 镜像并推送到 GHCR
 scripts/dev.mjs    开发入口：Vite（同进程）与 API 子进程，源码变化时重启 API（见 9.1）
@@ -288,7 +288,7 @@ _pages/                       自定义页面（以 _ 开头的目录保留给�
 | 登录有效期 | 7 天 | 1–365 天，访问时续期 |
 | Secure Cookie | 自动 | 自动：对外地址为 https 时开启；也可强制开启或关闭 |
 | SameSite | Lax | Strict / Lax / None。None 必须同时开启 Secure，否则保存返回 400 |
-| 反向代理之后 | 关 | 开启后按 `X-Forwarded-For` 识别访客 IP（登录与 git 认证的限流用）。经过 nginx（`deploy/nginx/brog.conf`）时必须开启，否则所有访客共用 nginx 的地址和同一个限流计数 |
+| 反向代理之后 | 关 | 开启后按 `X-Forwarded-For` 识别访客 IP（登录与 git 认证的限流用）。经过 nginx（`deploy/nginx/conf.d/brog.conf`）时必须开启，否则所有访客共用 nginx 的地址和同一个限流计数 |
 | 独立部署的前端地址 | 空 | CORS 允许的来源，每行一个，只写协议和域名，最多 20 个 |
 | 搜索文章正文 | 开 | 关闭后只搜索标题、标签和摘要；切换后自动重建索引 |
 | 分享链接域名 | 空 | 文章分享链接使用的域名（短域名），例如 `https://s.example.com`，只写协议和域名。空时使用主站域名（对外地址，或访问时的地址） |
@@ -520,7 +520,7 @@ pnpm typecheck
 
 - 镜像由 `Dockerfile` 构建，四个阶段：编译依赖（`deps`）、编译前后端（`build`）、生产依赖（`prod-deps`）、运行（`runtime`）。运行阶段只有生产依赖、`dist/` 和 `git`，以非 root 用户（`node`）运行，`/app/data` 是卷。
 - 本地构建与运行：`docker build -t brog:local .`，`docker run -d -p 8080:8080 -v brog-data:/app/data brog:local`，然后 `docker logs` 查看管理密码。
-- 带 nginx 的组合：`docker compose up -d --build`（`docker-compose.yml`）。nginx 发布 8080 端口并做 gzip，brog 只在内部网络可达。`BROG_GITHUB_TOKEN` 从环境或 `.env` 读取。
+- 带 nginx 的组合：`docker compose up -d --build`（`docker-compose.yml`）。nginx 挂载的是 `deploy/nginx/conf.d` 目录，不是单个文件：单文件挂载在主机路径缺失或被建成目录时会失败（containerd/nerdctl 与 Docker 相同）。nginx 发布 8080 端口并做 gzip，brog 只在内部网络可达。`BROG_GITHUB_TOKEN` 从环境或 `.env` 读取。
 - 自定义启动参数：通过环境变量，例如 `docker run -e BROG_PORT=9000 ...`。评论需要 `-e BROG_GITHUB_TOKEN=...`。其余设置在后台「设置」中修改。
 - 健康检查：`/api/site` 返回 200 即健康。
 - 发布：`.github/workflows/docker.yml` 在推送 `main` 时发布 `main` 标签；推送 `v*` 标签（如 `v0.1.0`）时发布 `0.1.0`、`0.1`，以及 `latest`。镜像推送到 `ghcr.io/imduaky/brog`，平台为 linux/amd64 与 linux/arm64。
@@ -530,7 +530,7 @@ pnpm typecheck
 
 ### 9.5 缓存（CDN）
 
-应用本身不压缩响应。压缩由反向代理负责：仓库提供 `deploy/nginx/brog.conf`，开启 gzip、加 `Vary: Accept-Encoding`，`/git/` 不压缩。CDN 也可以压缩，二者不要同时开启。应用只决定哪些响应可以被共享缓存保存。策略集中在 `src/server/routes/public.ts` 的 `CACHE`：
+应用本身不压缩响应。压缩由反向代理负责：仓库提供 `deploy/nginx/conf.d/brog.conf`，开启 gzip、加 `Vary: Accept-Encoding`，`/git/` 不压缩。CDN 也可以压缩，二者不要同时开启。应用只决定哪些响应可以被共享缓存保存。策略集中在 `src/server/routes/public.ts` 的 `CACHE`：
 
 | 策略 | `Cache-Control` | 用于 |
 | --- | --- | --- |
