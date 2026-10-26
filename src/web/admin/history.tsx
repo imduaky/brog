@@ -63,7 +63,7 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="relative h-full overflow-y-auto">
+    <div className="relative h-full overflow-y-auto scroll-quiet">
       <div className="mx-auto max-w-4xl p-6">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold">提交历史</h1>
@@ -167,7 +167,7 @@ function CommitDialog({ oid, head, onClose }: { oid: string | null; head?: strin
   const d = detail.data
   return (
     <Dialog open={!!oid} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-4xl">
+      <DialogContent className="max-h-[85svh] overflow-y-auto scroll-quiet sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>{d?.subject ?? '提交'}</DialogTitle>
           <DialogDescription asChild>
@@ -239,7 +239,7 @@ function ResetDialog({ target, onClose }: { target: CommitInfo | null; onClose: 
         {affected.data && affected.data.length > 0 && (
           <div className="text-sm">
             <p className="mb-1 text-muted-foreground">将移出当前版本的 {affected.data.length} 个提交（可能涉及其它文章）：</p>
-            <ul className="max-h-32 overflow-y-auto rounded-md border px-3 py-1.5 text-xs">
+            <ul className="max-h-32 overflow-y-auto scroll-quiet rounded-md border px-3 py-1.5 text-xs">
               {affected.data.map((c) => (
                 <li key={c.oid} className="truncate">
                   <code className="text-muted-foreground">{c.oid.slice(0, 7)}</code> {c.subject}

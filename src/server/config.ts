@@ -19,6 +19,8 @@ export interface StartupOptions {
   githubToken?: string
   /** GitHub GraphQL endpoint. Change it for GitHub Enterprise or a local test double. */
   githubApi: string
+  /** Trust X-Forwarded-For for client addresses. Set by the image, whose nginx overwrites the header. */
+  trustProxy: boolean
 }
 
 export interface StartupArgs {
@@ -45,5 +47,6 @@ export function resolveStartup(args: StartupArgs, env: NodeJS.ProcessEnv = proce
     gitBinary: args.git ?? env.BROG_GIT ?? 'git',
     githubToken: env.BROG_GITHUB_TOKEN?.trim() || undefined,
     githubApi: env.BROG_GITHUB_API?.trim() || GITHUB_GRAPHQL,
+    trustProxy: bool(env.BROG_TRUST_PROXY) ?? false,
   }
 }

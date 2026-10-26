@@ -55,7 +55,7 @@ export function SearchDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           placeholder="搜索文章、合集、标签…"
           aria-label="搜索"
         />
-        <div className="min-h-0 overflow-y-auto pr-1">
+        <div className="min-h-0 overflow-y-auto scroll-quiet pr-1">
           {q.length < 2 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">输入至少两个字符</p>
           ) : search.isPending && !search.data ? (

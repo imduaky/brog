@@ -107,7 +107,7 @@ src/
     git/           exec.ts（git 子进程）、repo.ts（BlogRepo：工作区、提交、reset、对比、提交搜索、外部 push 同步）、
                    catfile.ts（长驻 cat-file 读对象）、http.ts（smart HTTP 桥接）
     content/       service.ts（发布、索引、全文索引、读者数据、搜索、对比、图片、工作区操作、自定义页面）、
-                   meta.ts（meta.yaml，含预览信息）、tags.ts（标签目录）、site-settings.ts（站点设置、导航、友链、外观）、
+                   meta.ts（meta.yaml，含预览信息）、tags.ts（标签目录）、site-settings.ts（站点设置、导航、友链、外观）、site-icon.ts（网站图标：签名校验、保存、读取）、
                    pins.ts（置顶）、seed.ts（初始内容）、seed/（示例用的 README 副本、Markdown 演示、脚本与图）
     markdown/      render.ts（渲染入口，含沙箱页面包装）、containers.ts（提示框 / 标签页 / 按键）、
                    sanitize.ts、heading-context.ts（图片命名用的标题上下文）
@@ -127,12 +127,13 @@ src/
                    置顶按钮、沙箱页面 iframe、颜色选择、页面底色同步
     components/ui/ shadcn 生成的组件（sonner 不依赖 next-themes）
     pages/         首页（含置顶）、合集、标签、文章阅读页（含评论区）、原文页、对比页（读者与管理员共用）、友链页、自定义页面
-    admin/         工作区（文章与页面列表、更改、发布）、编辑器（文章与页面共用）、历史（含提交说明搜索）、
+    admin/         设置（站点、网站图标 settings-icon.tsx 等卡片）、工作区（文章与页面列表、更改、发布）、编辑器（文章与页面共用）、历史（含提交说明搜索）、
                    Token、设置（站点、导航、友链、置顶、外观、服务、密码；宽屏两列）
 tests/             vitest：工作流、搜索与对比、标签、外观与预览、示例内容、设置与自定义页面、sha256、Markdown
 Dockerfile         多阶段镜像：编译、生产依赖、运行（非 root 用户，数据目录为卷）
-docker-compose.yml brog + nginx（gzip）；nginx 是唯一对外端口，brog 不发布端口
-deploy/nginx/conf.d/brog.conf  nginx 反向代理配置：gzip、Vary、/git/ 不压缩不缓冲、请求体上限 25 MB
+docker-compose.yml 单个服务 brog，端口 8080 映射到容器的 80（nginx）
+deploy/nginx/brog.conf  nginx 配置：gzip、Vary、/git/ 不压缩不缓冲、请求体上限 25 MB；构建时 COPY 进镜像
+deploy/docker-entrypoint.sh  容器入口：以 node 用户启动 brog（127.0.0.1:8080），并在前台运行 nginx（端口 80）；任一进程退出则容器退出
 .dockerignore      镜像构建忽略的文件
 .github/workflows/docker.yml   推送 main 与 v* 标签时构建 linux/amd64、linux/arm64 镜像并推送到 GHCR
 scripts/dev.mjs    开发入口：Vite（同进程）与 API 子进程，源码变化时重启 API（见 9.1）
@@ -242,7 +243,7 @@ _pages/                       自定义页面（以 _ 开头的目录保留给�
 
 ### 6.7 读者页面
 
-- 文章页（宽度 ≥ 1280px）为三栏：目录 | 正文 | 历史。
+- 文章页（宽度 ≥ 1280px）为三栏：目录 | 正文 | 历史。默认目录打开、历史关闭：历史主要用于查看版本，大部分读者用不到。偏好保存在浏览器本地，键名带版本号（`brog-reader-panels-v2`），默认值变化时改键名即可让所有浏览器用上新默认。
   - 每栏顶部有标题和隐藏开关。栏始终挂载，关闭时宽度动画收到 0，内容不被挤压。
   - 分隔线可以拖动调整宽度，双击复原，或用方向键微调。宽度范围：目录 160–420px，历史 200–460px。
   - 布局偏好（哪些栏打开、宽度、功能区是否缩小）保存在浏览器本地 `localStorage`。
@@ -288,9 +289,10 @@ _pages/                       自定义页面（以 _ 开头的目录保留给�
 | 登录有效期 | 7 天 | 1–365 天，访问时续期 |
 | Secure Cookie | 自动 | 自动：对外地址为 https 时开启；也可强制开启或关闭 |
 | SameSite | Lax | Strict / Lax / None。None 必须同时开启 Secure，否则保存返回 400 |
-| 反向代理之后 | 关 | 开启后按 `X-Forwarded-For` 识别访客 IP（登录与 git 认证的限流用）。经过 nginx（`deploy/nginx/conf.d/brog.conf`）时必须开启，否则所有访客共用 nginx 的地址和同一个限流计数 |
+| 反向代理之后 | 关（镜像中由环境变量 `BROG_TRUST_PROXY=1` 开启） | 开启后按 `X-Forwarded-For` 识别访客 IP（登录与 git 认证的限流用）。只有前面有会覆盖该头的反向代理时才能开启。自带的 nginx 会用连接地址覆盖该头 |
 | 独立部署的前端地址 | 空 | CORS 允许的来源，每行一个，只写协议和域名，最多 20 个 |
 | 搜索文章正文 | 开 | 关闭后只搜索标题、标签和摘要；切换后自动重建索引 |
+| 网站图标 | 默认图标 | 浏览器标签页图标，在「设置 → 网站图标」中上传。支持 PNG、ICO、WebP、GIF、SVG，不超过 512 KB。类型由文件内容判断，不信任上传的 Content-Type。保存在 SQLite 的 `site_icon` 表（只有一行）。`/favicon.ico` 直接提供；页面头部的图标链接带版本号（`?v=上传时间`），上传后立即生效。SVG 以沙箱 CSP 提供。 |
 | 分享链接域名 | 空 | 文章分享链接使用的域名（短域名），例如 `https://s.example.com`，只写协议和域名。空时使用主站域名（对外地址，或访问时的地址） |
 
 - 页面不是 HTTPS 却启用 Secure Cookie 时，保存前提示：此后浏览器不会保存登录状态，可在服务器上运行 `reset-settings` 恢复默认值。
@@ -463,7 +465,7 @@ _pages/                       自定义页面（以 _ 开头的目录保留给�
    | `--api-only` | `BROG_SERVE_WEB=false` | 开 | 不托管前端，只提供 API 与 git |
    | `--git` | `BROG_GIT` | `git` | git 可执行文件 |
 
-2. **仅环境变量**（不入库，不在页面显示）：`BROG_GITHUB_TOKEN`，评论使用的 GitHub 令牌；`BROG_GITHUB_API`，GitHub GraphQL 地址，默认 `https://api.github.com/graphql`，用于 GitHub Enterprise 或本地测试。
+2. **仅环境变量**（不入库，不在页面显示）：`BROG_GITHUB_TOKEN`，评论使用的 GitHub 令牌；`BROG_GITHUB_API`，GitHub GraphQL 地址，默认 `https://api.github.com/graphql`，用于 GitHub Enterprise 或本地测试；`BROG_TRUST_PROXY`，`1` 时信任 `X-Forwarded-For`（镜像内置 nginx 时设置）。
 
 3. **服务设置**：存在 SQLite，在「设置 → 服务」中修改，默认值见 6.8.1。服务端在每次使用时读取当前值（不缓存在模块常量中），因此保存即对后续请求生效：会话有效期、Cookie、CORS、反向代理、提交作者、全文搜索开关（切换时重建索引）。`pnpm reset-settings` 删除已保存的服务设置，下次启动时使用默认值（见 11.2）。
 
@@ -520,7 +522,9 @@ pnpm typecheck
 
 - 镜像由 `Dockerfile` 构建，四个阶段：编译依赖（`deps`）、编译前后端（`build`）、生产依赖（`prod-deps`）、运行（`runtime`）。运行阶段只有生产依赖、`dist/` 和 `git`，以非 root 用户（`node`）运行，`/app/data` 是卷。
 - 本地构建与运行：`docker build -t brog:local .`，`docker run -d -p 8080:8080 -v brog-data:/app/data brog:local`，然后 `docker logs` 查看管理密码。
-- 带 nginx 的组合：`docker compose up -d --build`（`docker-compose.yml`）。nginx 挂载的是 `deploy/nginx/conf.d` 目录，不是单个文件：单文件挂载在主机路径缺失或被建成目录时会失败（containerd/nerdctl 与 Docker 相同）。nginx 发布 8080 端口并做 gzip，brog 只在内部网络可达。`BROG_GITHUB_TOKEN` 从环境或 `.env` 读取。
+- 镜像是一个容器，两个进程：nginx（容器端口 80，gzip，对外）与 brog（`127.0.0.1:8080`，node 用户）。`docker compose up -d --build`（`docker-compose.yml`）。nginx 配置用 `COPY` 打包进镜像，不挂载。`BROG_GITHUB_TOKEN` 从环境或 `.env` 读取。
+- 容器健康检查访问 nginx（`http://127.0.0.1/api/site`）。
+- Node 版本固定到补丁号：`Dockerfile` 的 `NODE_IMAGE` 为 `node:24.22.1-bookworm-slim`，`package.json` 的 `engines` 为 `>=24.22.1`。24.22.1 包含 2026 年 10 月 Node.js 安全发布的修复（含 Brotli 内存写入漏洞 CVE-2026-111497）。每次 Node 安全发布都要同步修改这两处。
 - 自定义启动参数：通过环境变量，例如 `docker run -e BROG_PORT=9000 ...`。评论需要 `-e BROG_GITHUB_TOKEN=...`。其余设置在后台「设置」中修改。
 - 健康检查：`/api/site` 返回 200 即健康。
 - 发布：`.github/workflows/docker.yml` 在推送 `main` 时发布 `main` 标签；推送 `v*` 标签（如 `v0.1.0`）时发布 `0.1.0`、`0.1`，以及 `latest`。镜像推送到 `ghcr.io/imduaky/brog`，平台为 linux/amd64 与 linux/arm64。
@@ -530,7 +534,7 @@ pnpm typecheck
 
 ### 9.5 缓存（CDN）
 
-应用本身不压缩响应。压缩由反向代理负责：仓库提供 `deploy/nginx/conf.d/brog.conf`，开启 gzip、加 `Vary: Accept-Encoding`，`/git/` 不压缩。CDN 也可以压缩，二者不要同时开启。应用只决定哪些响应可以被共享缓存保存。策略集中在 `src/server/routes/public.ts` 的 `CACHE`：
+应用本身不压缩响应。压缩由反向代理负责：镜像内的 nginx 使用 `deploy/nginx/brog.conf`，开启 gzip、加 `Vary: Accept-Encoding`，`/git/` 不压缩。CDN 也可以压缩，二者不要同时开启。应用只决定哪些响应可以被共享缓存保存。策略集中在 `src/server/routes/public.ts` 的 `CACHE`：
 
 | 策略 | `Cache-Control` | 用于 |
 | --- | --- | --- |
@@ -557,6 +561,7 @@ pnpm typecheck
 - `tests/seed.test.ts`：示例内容与 `README.md` 完全一致；全新安装即发布示例；示例正文以项目 README 开头，之后渲染 Markdown 的每一项功能，且不会出现可执行的脚本。
 - `tests/comments.test.ts`：评论默认关闭（读者看不到、发表 403、令牌不出现在响应中）、开启需要令牌、保存时核对仓库与分类、换仓库清空讨论映射、测试面板的各步骤（含令牌失效时跳过后续步骤、只读）、首条评论创建讨论并复用、访客与 GitHub 登录名的区分、输入校验、发表限流（5 次 / 10 分钟）、列表缓存与失效、管理员删除。使用内存中的 fake GitHub，不访问真实 GitHub。
 - `tests/cache.test.ts`：各类公开响应的缓存策略（列表与最新版本为 `live`、固定版本与图片为 `immutable`、评论与游客链接为 `no-cache`、管理员对比为 `private`、错误不缓存）、公开响应不写 `Set-Cookie`（即使管理员已登录）。
+- `tests/icon.test.ts`：网站图标（未上传时 404、上传后的类型与缓存头、类型由内容判断、ICO 与 SVG（SVG 沙箱）、拒绝非图标/空文件/超过 512 KB、仅管理员、恢复默认、签名识别）。
 - `tests/share.test.ts`：读者不能删除链接（游客链接与管理员链接都是 404，链接仍可访问）、管理员删除游客链接后读者得到新链接；游客链接（每篇一个、并发首次请求只生成一个、管理员链接与游客链接并存且游客链接排在前、未发布返回 409、POST 需要 CSRF 头、停用后重新生成）、编号格式与唯一性、分享域名的优先级（分享域名 > 对外地址 > 请求域名）、分享域名不能带路径、302 跳转与 `no-cache`、未发布文章不能创建链接、文章移除后链接失效、停用、未知与畸形编号、仅管理员可操作。
 - `tests/sha256.test.ts`：纯 JS 的 SHA-256 与 Node 的 crypto 结果一致（边界长度、UTF-8、随机输入）。
 - `tests/markdown.test.ts`：提示框 / 标签页 / TOC / 图片路径 / 安全过滤 / 沙箱 demo / 图片命名上下文 / `data-line` / 展开结构（动画框与内层分离）。
@@ -643,6 +648,7 @@ pnpm typecheck
 - 圆角：贴在一起、形成整体的结构区域（页头、阅读面板、表格、分隔线两侧）保持直角，只靠边框分隔。相互分开的元素（卡片、标签、按钮、输入框、列表项、带边框的提示块）使用小圆角（`rounded-sm` 4px、`rounded-md` 6px、`rounded-lg` 8px）。加间隙的元素一定要有圆角。
 - 颜色：页面颜色只通过 `--background` / `--foreground` 和由它们混合的 token 指定。不要写死米色、白色或深色的十六进制值。
 - 管理端页头与公开页头一样使用三列网格：标签居中，窄屏下标签区域横向滚动。
+- 页面内的纵向滚动区域（面板、抽屉、弹窗、列表、编辑器预览）使用 `scroll-quiet` 工具类：仍然可以滚动，但不显示滚动条。只有窗口保留滚动条。横向滚动（代码块、表格）保持可见。
 - 窗口滚动条只在页面真的可滚动时出现。不要给 `html` 设 `overflow-y: scroll`（会让每个页面都有一条窗口滚动条）。居中行（页头、主体、页脚）使用 `frame` 工具类，它的右侧留白读取 `--sb-pad`（见 `src/web/lib/scrollbar.ts`），让页面有无滚动条时内容的位置一致。
 - 可滚动的容器必须是定位元素（`relative`），否则其中绝对定位的子元素（如原生 `select`、表单输入）会逃出容器，把整个页面撑出滚动条。
 - 动画优先使用 `transform` 和 `opacity`。只在必要时改变 `height`（可折叠块）或 `width`（阅读页面板）。时长 120–260ms。见 6.16。必须尊重 `prefers-reduced-motion`。

@@ -7,6 +7,7 @@ import { PinsInput, writePins } from '../content/pins.ts'
 import { readSiteSettings, SiteSettingsInput, writeSiteSettings } from '../content/site-settings.ts'
 import { CommentSettingsInput } from '../comments/settings.ts'
 import { shareUrl } from '../share/links.ts'
+import { ICON_MAX_BYTES, deleteSiteIcon, saveSiteIcon, siteIconInfo } from '../content/site-icon.ts'
 import { ensureTags } from '../content/tags.ts'
 import { HEX_RE } from '../../shared/color.ts'
 import { imageMime } from '../content/service.ts'
@@ -330,6 +331,27 @@ export function adminRoutes(ctx: AppContext) {
   app.delete('/shares/:id', (c) => {
     if (!ctx.shares.revoke(c.req.param('id'))) return c.json({ error: '分享链接不存在' }, 404)
     return c.json({ ok: true })
+  })
+
+  // ------------------------------------------------------------ site icon
+
+  app.get('/site-icon', (c) => c.json(siteIconInfo(ctx.db)))
+
+  /** Raw body: the image itself. The type is read from its signature. */
+  app.put('/site-icon', async (c) => {
+    const declared = Number(c.req.header('content-length') ?? 0)
+    if (declared > ICON_MAX_BYTES) throw new RepoError('图标不能超过 512 KB', 400)
+    const data = Buffer.from(await c.req.arrayBuffer())
+    try {
+      return c.json(saveSiteIcon(ctx.db, data))
+    } catch (err) {
+      throw new RepoError(err instanceof Error ? err.message : String(err), 400)
+    }
+  })
+
+  app.delete('/site-icon', (c) => {
+    deleteSiteIcon(ctx.db)
+    return c.json(siteIconInfo(ctx.db))
   })
 
   // ------------------------------------------------------------ site settings

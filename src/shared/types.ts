@@ -207,6 +207,13 @@ export interface SiteInfo {
   comments: { enabled: boolean }
 }
 
+/** The site icon: custom (uploaded) or the built-in default. */
+export interface SiteIconInfo {
+  custom: boolean
+  /** Unix time in milliseconds; 0 for the default icon */
+  updatedAt: number
+}
+
 /** A share link to an article: <origin>/sh/<id>, redirecting to the published article. */
 export interface ShareLink {
   /** 4 letters or digits, case-sensitive */

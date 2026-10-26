@@ -54,7 +54,7 @@ export function createAppContext(
 export type Env = { Variables: { admin: boolean } }
 
 export function clientIp(ctx: AppContext, c: Context): string {
-  if (ctx.settings.get().trustProxy) {
+  if (ctx.startup.trustProxy || ctx.settings.get().trustProxy) {
     const fwd = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
     if (fwd) return fwd
   }

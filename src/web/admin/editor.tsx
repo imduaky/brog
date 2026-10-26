@@ -351,7 +351,7 @@ function Editor({ target, initial }: { target: Doc; initial: string }) {
           (kind === 'html' ? (
             <iframe title="预览" sandbox="allow-scripts" srcDoc={previewDoc} className="block h-full w-full bg-background" />
           ) : (
-            <div ref={previewBox} className="relative min-h-0 overflow-y-auto">
+            <div ref={previewBox} className="relative min-h-0 overflow-y-auto scroll-quiet">
               <div className="mx-auto max-w-3xl px-8 py-6">{preview && <MarkdownView html={preview.html} />}</div>
             </div>
           ))}
@@ -540,7 +540,7 @@ function MetaSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="overflow-y-auto">
+      <SheetContent className="overflow-y-auto scroll-quiet">
         <SheetHeader>
           <SheetTitle>文章信息</SheetTitle>
           <SheetDescription>修改后需要提交并发布，读者才会看到。</SheetDescription>
@@ -687,7 +687,7 @@ function CommitDialog({
             <DialogDescription>暂存并提交{what}的所有修改（{paths.length} 个文件）。其它文件的修改请在工作区页面处理。</DialogDescription>
           </DialogHeader>
           {paths.length > 0 && (
-            <ul className="max-h-40 overflow-y-auto rounded-md border px-3 py-2 font-mono text-xs">
+            <ul className="max-h-40 overflow-y-auto scroll-quiet rounded-md border px-3 py-2 font-mono text-xs">
               {paths.map((p) => (
                 <li key={p} className="truncate">
                   {p}

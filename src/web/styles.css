@@ -143,6 +143,18 @@
   @apply cursor-pointer rounded-md transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none;
 }
 
+/*
+ * Vertical scroll areas inside the page (panels, sheets, dialogs, lists, editor preview).
+ * They still scroll; the bar is not drawn, so it does not compete with the page's own.
+ * Only the window keeps its scrollbar.
+ */
+@utility scroll-quiet {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* ---------------------------------------------------------------- rendered markdown */
 
 .markdown {

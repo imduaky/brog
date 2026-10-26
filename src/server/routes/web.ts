@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { type Context, Hono } from 'hono'
+import { siteIconInfo } from '../content/site-icon.ts'
 import { readSiteSettings } from '../content/site-settings.ts'
 import { type AppContext, type Env } from '../context.ts'
 
@@ -43,10 +44,11 @@ export function webRoutes(ctx: AppContext) {
       return c.text('frontend not built: run `pnpm build:web`, or start with --api-only', 500)
     }
     const meta = await pageMeta(ctx, c)
+    const icon = siteIconInfo(ctx.db)
     // The shell is the same for every reader; its assets are hashed and cached for a year.
     // A shared cache keeps it for a minute, so a redeploy shows up within that minute.
     c.header('Cache-Control', 'public, max-age=0, s-maxage=60')
-    return c.html(injectMeta(html, meta))
+    return c.html(injectMeta(html, meta, icon.custom ? `/favicon.ico?v=${icon.updatedAt}` : null))
   })
 
   return app
@@ -92,7 +94,7 @@ async function pageMeta(ctx: AppContext, c: Context): Promise<PageMeta> {
   }
 }
 
-function injectMeta(html: string, meta: PageMeta): string {
+function injectMeta(html: string, meta: PageMeta, iconHref: string | null): string {
   const tags = [
     `<title>${escape(meta.title)}</title>`,
     `<meta name="description" content="${escape(meta.description)}">`,
@@ -101,5 +103,8 @@ function injectMeta(html: string, meta: PageMeta): string {
     `<meta property="og:type" content="${meta.type}">`,
     meta.image ? `<meta property="og:image" content="${escape(meta.image)}">` : '',
   ].join('\n    ')
-  return html.replace(/<title>.*?<\/title>/s, '').replace('</head>', `    ${tags}\n  </head>`)
+  // The built page carries a default icon; an uploaded one replaces it.
+  const base = iconHref ? html.replace(/<link rel="icon"[^>]*>/, '') : html
+  const icon = iconHref ? `<link rel="icon" href="${escape(iconHref)}">` : ''
+  return base.replace(/<title>.*?<\/title>/s, '').replace('</head>', `    ${tags}\n    ${icon}\n  </head>`)
 }

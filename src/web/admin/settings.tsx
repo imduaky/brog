@@ -17,6 +17,7 @@ import { api, formatDateTime, sha256Hex } from '@/lib/api'
 import { ErrorState, Loading } from '@/components/states'
 import { useAdminMutation } from './hooks'
 import { CommentsCard } from './settings-comments'
+import { IconCard } from './settings-icon'
 import { FriendLinksCard, NavCard } from './settings-nav'
 import { PinsCard } from './settings-pins'
 import { ServerCard } from './settings-server'
@@ -34,7 +35,7 @@ export default function SettingsPage() {
   const site = useSite()
   const s = site.data?.settings
   return (
-    <div className="relative h-full overflow-y-auto">
+    <div className="relative h-full overflow-y-auto scroll-quiet">
       <div className="mx-auto grid max-w-6xl items-start gap-6 p-6 lg:grid-cols-2">
         {site.isPending ? (
           <Loading />
@@ -44,6 +45,7 @@ export default function SettingsPage() {
           s && (
             <>
               <div className="grid min-w-0 content-start gap-6">
+                <IconCard />
                 <SiteCard key={JSON.stringify(pickSite(s))} settings={s} />
                 <NavCard key={JSON.stringify(s.nav)} settings={s} />
                 <FriendLinksCard key={JSON.stringify(s.friendLinks)} settings={s} />

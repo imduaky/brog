@@ -28,6 +28,7 @@ Options (environment variable in brackets):
 Environment only:
   BROG_GITHUB_TOKEN   token for comments (GitHub Discussions). Never stored or shown.
   BROG_GITHUB_API     GraphQL endpoint, default https://api.github.com/graphql
+  BROG_TRUST_PROXY    1 when behind a reverse proxy that sets X-Forwarded-For (the image sets it)
 
 All other settings are edited in the admin panel (Settings).
 `

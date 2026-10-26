@@ -11,6 +11,7 @@ import { authRoutes } from './routes/auth.ts'
 import { gitRoutes } from './routes/git.ts'
 import { publicRoutes } from './routes/public.ts'
 import { shareRoutes } from './routes/share.ts'
+import { readSiteIcon } from './content/site-icon.ts'
 import { webRoutes } from './routes/web.ts'
 
 /**
@@ -54,6 +55,18 @@ export function createApp(ctx: AppContext) {
   app.route('/api', publicRoutes(ctx))
   app.route('/git', gitRoutes(ctx))
   app.route('/sh', shareRoutes(ctx))
+
+  // The site icon: uploaded in the admin panel. Browsers ask for this path directly, so it is not left to the SPA.
+  app.get('/favicon.ico', (c) => {
+    const icon = readSiteIcon(ctx.db)
+    if (!icon) return c.text('not found', 404)
+    // A versioned URL (?v=<updatedAt>) is immutable; the bare path is short-lived, so a new icon shows up soon after an upload.
+    const versioned = c.req.query('v') === String(icon.updatedAt)
+    c.header('Cache-Control', versioned ? 'public, max-age=31536000, immutable' : 'public, max-age=3600')
+    c.header('Content-Type', icon.mime)
+    if (icon.mime === 'image/svg+xml') c.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+    return c.body(new Uint8Array(icon.data))
+  })
 
   app.get('/images/:hash', async (c) => {
     const img = await ctx.content.readImage(c.req.param('hash'))

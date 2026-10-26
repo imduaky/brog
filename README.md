@@ -20,20 +20,20 @@
 ### Docker（推荐）
 
 ```bash
-docker run -d --name brog -p 8080:8080 -v brog-data:/app/data ghcr.io/imduaky/brog:latest
+docker run -d --name brog -p 8080:80 -v brog-data:/app/data ghcr.io/imduaky/brog:latest
 docker logs brog   # 首次启动会打印管理密码
 ```
 
 打开 http://localhost:8080 。在任意页面（输入框之外）连续按 `w` 三次，输入管理密码进入后台。
 
-### Docker Compose（带 nginx 与 gzip）
+### Docker Compose
 
 ```bash
 docker compose up -d --build   # 打开 http://localhost:8080
 docker compose logs brog       # 首次启动会打印管理密码
 ```
 
-nginx 配置在 `deploy/nginx/conf.d/brog.conf`（整个目录挂载到 `/etc/nginx/conf.d`）。经过 nginx 时，请在后台「设置 → 服务」中开启「反向代理之后」，否则所有访客共用同一个限流计数。
+一个容器里运行两个进程：nginx（端口 80，gzip）和 brog（只在容器内部的 127.0.0.1:8080 监听）。nginx 配置 `deploy/nginx/brog.conf` 在构建时打包进镜像，不需要挂载。镜像已经设置 `BROG_TRUST_PROXY=1`，所以限流按真实访客地址计算。
 
 ### 从源码运行
 

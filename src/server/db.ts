@@ -148,6 +148,15 @@ const MIGRATIONS: string[] = [
   ALTER TABLE share_links ADD COLUMN visitor INTEGER NOT NULL DEFAULT 0;
   CREATE UNIQUE INDEX share_links_visitor ON share_links(series, chapter) WHERE visitor = 1;
   `,
+  `
+  -- The site icon (favicon), uploaded in the admin panel. At most one row.
+  CREATE TABLE site_icon (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    mime       TEXT NOT NULL,
+    data       BLOB NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  `,
 ]
 
 export function openDb(file: string): DB {

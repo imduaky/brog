@@ -48,7 +48,7 @@ export default function DashboardPage() {
   if (pages.isError) return <ErrorState error={pages.error} />
 
   return (
-    <div className="relative h-full overflow-y-auto">
+    <div className="relative h-full overflow-y-auto scroll-quiet">
       <div className="mx-auto grid max-w-6xl gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         {status.data.warning && <WarningBanner message={status.data.warning} />}
         <div className="grid content-start gap-6">
@@ -281,7 +281,7 @@ function ChangesCard({ status }: { status: WorkspaceStatus }) {
         </form>
       </CardContent>
       <Dialog open={!!diff} onOpenChange={(o) => !o && setDiff(null)}>
-        <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-4xl">
+        <DialogContent className="max-h-[85svh] overflow-y-auto scroll-quiet sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle className="font-mono text-sm">
               {diff?.path} {diff?.staged ? '（已暂存）' : ''}

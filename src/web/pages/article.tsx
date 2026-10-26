@@ -31,7 +31,8 @@ interface Prefs {
 }
 
 const DEFAULT_PREFS: Prefs = {
-  open: { toc: true, history: true },
+  // The history is for the few who want the version list; most readers only need the text and the contents.
+  open: { toc: true, history: false },
   widths: { toc: 240, history: 280 },
   toolsMinimized: false,
 }
@@ -39,7 +40,8 @@ const WIDTH_LIMITS: Record<PanelId, [number, number]> = {
   toc: [160, 420],
   history: [200, 460],
 }
-const PREFS_KEY = 'brog-reader-panels'
+// Bumped when the defaults change, so browsers that saved the old layout pick up the new defaults once.
+const PREFS_KEY = 'brog-reader-panels-v2'
 /** Width of the drag handle that belongs to each panel slot. */
 const HANDLE_PX = 8
 /** Reader columns need this much room; below it the panels open as sheets. */
@@ -136,7 +138,7 @@ export default function ArticlePage() {
     const inner = (
       <div className="flex min-h-0 min-w-0 flex-col" style={{ width }}>
         <PanelHeader title={title} side={side} onHide={() => hide(id)} />
-        <div className="relative min-h-0 overflow-y-auto pr-1 [scrollbar-width:thin]">{body}</div>
+        <div className="relative min-h-0 overflow-y-auto scroll-quiet pr-1">{body}</div>
       </div>
     )
     return (
@@ -227,7 +229,7 @@ export default function ArticlePage() {
       {!wide && (
         <>
           <Sheet open={sheet === 'toc'} onOpenChange={(o) => !o && setSheet(null)}>
-            <SheetContent side="left" className="w-[85vw] max-w-sm overflow-y-auto p-4">
+            <SheetContent side="left" className="w-[85vw] max-w-sm overflow-y-auto scroll-quiet p-4">
               <SheetHeader className="p-0">
                 <SheetTitle>目录</SheetTitle>
               </SheetHeader>
@@ -235,7 +237,7 @@ export default function ArticlePage() {
             </SheetContent>
           </Sheet>
           <Sheet open={sheet === 'history'} onOpenChange={(o) => !o && setSheet(null)}>
-            <SheetContent side="right" className="w-[85vw] max-w-sm overflow-y-auto p-4">
+            <SheetContent side="right" className="w-[85vw] max-w-sm overflow-y-auto scroll-quiet p-4">
               <SheetHeader className="p-0">
                 <SheetTitle>历史</SheetTitle>
               </SheetHeader>

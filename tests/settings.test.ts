@@ -23,6 +23,8 @@ describe('startup options', () => {
     const s = resolveStartup({ port: '9000' }, { BROG_PORT: '7000', BROG_HOST: '127.0.0.1', BROG_SERVE_WEB: 'false' }, '/srv')
     expect(s).toMatchObject({ host: '127.0.0.1', port: 9000, serveWeb: false, dataDir: '/srv/data' })
     expect(() => resolveStartup({ port: 'x' }, {})).toThrow()
+    expect(resolveStartup({}, { BROG_TRUST_PROXY: '1' }).trustProxy).toBe(true)
+    expect(resolveStartup({}, {}).trustProxy).toBe(false)
   })
 })
 
